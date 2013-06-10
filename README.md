@@ -42,6 +42,8 @@ and in hexagon_iset_v[234].h  change HEXAGON_MAP_FNAME to HEXAGON_MAP_FPTR
 
 I used the gnutools from december 2011.
 
+You need a c++11 compiler, like visualstudio-express 2010, or clang++3.1
+
 bugs
 -------
 
