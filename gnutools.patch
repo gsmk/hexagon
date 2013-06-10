@@ -46,10 +46,10 @@ index 73e0bf6..9e4fa22 100644
    /* Print the instruction buffer
       Watch out for placeholders where we want
 diff --git a/opcodes/hexagon-opc.c b/opcodes/hexagon-opc.c
-index a49f709..a115143 100644
+index a49f709..80b0c89 100644
 --- a/opcodes/hexagon-opc.c
 +++ b/opcodes/hexagon-opc.c
-@@ -994,13 +994,16 @@ size_t hexagon_opcodes_count;
+@@ -994,13 +994,25 @@ size_t hexagon_opcodes_count;
    (char *i, size_t n, const hexagon_operand_arg args [])
  #define MAP_FUNCTION(TAG) HEXAGON_MAP_SIGN (TAG); \
    HEXAGON_MAP_SIGN (TAG)
@@ -61,14 +61,22 @@ index a49f709..a115143 100644
  #define GET_OP_STR(N) (args [N].string [0] == '#' \
                         ? args [N].string + 1 \
                         : args [N].string)
--
--#define sprintf snprintf
 +#undef sprintf
++
++#ifdef _WIN32
++#define strncasecmp _strnicmp
++#define strcasecmp _stricmp
++#define alloca _alloca
++#define snprintf _snprintf
++#endif
++
 +#define sprintf(buf, len, fmt, ...) snprintf(buf, len, fmt, ##__VA_ARGS__)
+ 
+-#define sprintf snprintf
  #  include "opcode/hexagon_asm_maps.h"
  #undef sprintf
  
-@@ -2009,7 +2012,9 @@ hexagon_reg_num
+@@ -2009,7 +2021,9 @@ hexagon_reg_num
                  continue;
  
                *input = regs + len - (*name? 1: 0);

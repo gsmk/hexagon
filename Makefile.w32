@@ -1,0 +1,66 @@
+# the name under which this processor module is listed by IDA
+DESCRIPTION=Qualcomm Hexagon DSP v4:QDSP6
+
+all:
+
+#vc=c:/Program Files/Microsoft Visual Studio 8/VC
+#winsdk=$(vc)/platformsdk
+vc=c:/Program Files/Microsoft Visual Studio 10.0/VC
+winsdk=C:/Program Files/Microsoft SDKs/Windows/v7.0A
+CXX=$(vc)/bin/cl.exe
+CC=$(vc)/bin/cl.exe
+LD=$(vc)/bin/link.exe
+
+TARGETS+=hexagon.w32
+
+# set some paths to external libraries
+idasdk=z:/sources/idasdk64
+idabin=c:/local/ida620
+
+# where the quicinc objdump source can be found
+gnutools=z:/projects/iphone/hexagon/source-wj/gnutools
+
+gnutoolsincludes=-I $(gnutools)/include -I $(gnutools)/bfd -I $(gnutools)/build_mac/opcodes -I $(gnutools)/build_mac/bfd -I $(gnutools)/include/opcode
+CFLAGS=-EHsc -GR -Gz -nologo -Zi -D__NT__ -D__IDP__ -I $(idasdk)/include -I $(BOOST)
+CFLAGS+=-I "$(vc)/include" -I "$(winsdk)/include" -D_WIN32 -DWIN32 -D_USRDLL -DMAXSTR=1024
+CFLAGS+=-O2
+
+LDLIBS=$(idasdk)/lib/x86_win_vc_32/ida.lib
+LDLIBS+=-libpath:"$(vc)/lib" -libpath:"$(winsdk)/lib"
+LDFLAGS=-debug -nologo -dll -export:LPH -stub:$(idasdk)/module/stub
+
+
+# add this flag when you want verbose logging
+#CFLAGS+=-DTRACELOG
+
+all: $(TARGETS)
+
+hexagon.w32: hexagon.obj gt_safe-ctype.obj  gt_hexagon-dis.obj gt_hexagon-opc.obj bfd_funcs.obj
+cflags_hexagon= $(gnutoolsincludes)
+cflags_bfd_funcs= $(gnutoolsincludes)
+
+install:  hexagon.w32
+	cp $^  "$(idabin)/procs"
+
+clean:
+	$(RM) $(TARGETS) $(wildcard *.obj) $(GENERATEDFILES)
+
+
+
+
+%.obj: %.cpp
+	"$(CXX)" -c -Wall -Fo$@ $^ $(cflags_$(basename $(notdir $@))) $(CFLAGS)
+
+gt_%.obj: $(gnutools)/libiberty/%.c
+	"$(CC)" -c -Wall -Fo$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
+
+gt_%.obj: $(gnutools)/opcodes/%.c
+	"$(CC)" -c -Wall -Fo$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
+
+%.obj: %.s
+	"$(CXX)" -c -Fo$@ $^
+
+%.w32: %.obj
+	"$(LD)" $(LDFLAGS) -out:$@ $^  $(LDLIBS)
+	$(subst \,/,$(idasdk))/bin/mkidp.exe $@ "$(DESCRIPTION)"
+

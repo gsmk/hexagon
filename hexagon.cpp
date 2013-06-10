@@ -8,8 +8,13 @@
 #include <bfd.h>
 #include <dis-asm.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <map>
 #include <list>
+
+#ifdef _WIN32
+#define strtoll _strtoui64
+#endif
 
 #ifdef TRACELOG
 #define hextracelog(...)  qfprintf(g_log, __VA_ARGS__)
