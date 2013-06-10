@@ -17,6 +17,8 @@ binary download
 
 A binary for Mac OS X can be downloaded from [bintray](https://bintray.com/itsme/hexagon-ida/hexagon-osx-binary/1.0)
 
+A binary for Windows can be downloaded from [bintray](https://bintray.com/itsme/hexagon-ida/hexagon-win32-binary/1.0)
+
 installation
 -------
 
