@@ -1,26 +1,22 @@
-# the name under which this processor module is listed by IDA
-DESCRIPTION=Qualcomm Hexagon DSP v4:QDSP6
+include ../idacfg.mk
 
 all:
 
 #vc=c:/Program Files/Microsoft Visual Studio 8/VC
 #winsdk=$(vc)/platformsdk
-vc=c:/Program Files/Microsoft Visual Studio 10.0/VC
-winsdk=C:/Program Files/Microsoft SDKs/Windows/v7.0A
+vc=c:/Program Files (x86)/Microsoft Visual Studio 14.0/VC
+winsdk=C:/Program Files (x86)/Windows Kits/10
 CXX=$(vc)/bin/cl.exe
 CC=$(vc)/bin/cl.exe
 LD=$(vc)/bin/link.exe
 
 TARGETS+=hexagon.w32
 
-# set some paths to external libraries
-idasdk=z:/sources/idasdk64
-idabin=c:/local/ida620
-
 # where the quicinc objdump source can be found
-gnutools=z:/projects/iphone/hexagon/source-wj/gnutools
+gnutools= hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03
 
-gnutoolsincludes=-I $(gnutools)/include -I $(gnutools)/bfd -I $(gnutools)/build_mac/opcodes -I $(gnutools)/build_mac/bfd -I $(gnutools)/include/opcode
+gnutoolsincludes=-I $(gnutools)/include -I $(gnutools)/bfd -I $(gnutools)/include/opcode
+gnutoolsincludes+=-I build-win/opcodes -I build-win/bfd
 CFLAGS=-EHsc -GR -Gz -nologo -Zi -D__NT__ -D__IDP__ -I $(idasdk)/include -I $(BOOST)
 CFLAGS+=-I "$(vc)/include" -I "$(winsdk)/include" -D_WIN32 -DWIN32 -D_USRDLL -DMAXSTR=1024
 CFLAGS+=-O2
@@ -35,7 +31,7 @@ LDFLAGS=-debug -nologo -dll -export:LPH -stub:$(idasdk)/module/stub
 
 all: $(TARGETS)
 
-hexagon.w32: hexagon.obj gt_safe-ctype.obj  gt_hexagon-dis.obj gt_hexagon-opc.obj bfd_funcs.obj
+hexagon.w32: hexagon.obj gt_safe-ctype.obj  gt_hexagon-dis.obj gt_hexagon-opc.obj bfd_funcs.obj gt_hexagon-isa.obj gt_cpu-hexagon.obj dummy-scan.obj
 cflags_hexagon= $(gnutoolsincludes)
 cflags_bfd_funcs= $(gnutoolsincludes)
 
@@ -43,24 +39,28 @@ install:  hexagon.w32
 	cp $^  "$(idabin)/procs"
 
 clean:
-	$(RM) $(TARGETS) $(wildcard *.obj) $(GENERATEDFILES)
+	$(RM) $(TARGETS) $(wildcard *.obj) $(GENERATEDFILES)  hexagon.exp hexagon.ilk hexagon.lib hexagon.pdb vc140.pdb
 
 
 
 
 %.obj: %.cpp
-	"$(CXX)" -c -Wall -Fo$@ $^ $(cflags_$(basename $(notdir $@))) $(CFLAGS)
+	"$(CXX)" -c -Fo$@ $^ $(cflags_$(basename $(notdir $@))) $(CFLAGS) $(CXXFLAGS)
+%.obj: %.c
+	"$(CC)" -c -Fo$@ $^ $(cflags_$(basename $(notdir $@))) $(CFLAGS)
 
 gt_%.obj: $(gnutools)/libiberty/%.c
-	"$(CC)" -c -Wall -Fo$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
+	"$(CC)" -c -Fo$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
 
 gt_%.obj: $(gnutools)/opcodes/%.c
-	"$(CC)" -c -Wall -Fo$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
+	"$(CC)" -c -Fo$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
+
+gt_%.obj: $(gnutools)/bfd/%.c
+	"$(CC)" -c -Fo$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
 
 %.obj: %.s
 	"$(CXX)" -c -Fo$@ $^
 
 %.w32: %.obj
 	"$(LD)" $(LDFLAGS) -out:$@ $^  $(LDLIBS)
-	$(subst \,/,$(idasdk))/bin/mkidp.exe $@ "$(DESCRIPTION)"
 

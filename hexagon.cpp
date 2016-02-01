@@ -17,6 +17,7 @@
 #endif
 
 #ifdef TRACELOG
+FILE *g_log;
 #define hextracelog(...)  qfprintf(g_log, __VA_ARGS__)
 #define dbgprintf(...)  qfprintf(g_log, __VA_ARGS__)
 #define errprintf(...)  qfprintf(g_log, "ERROR: " __VA_ARGS__)
@@ -26,7 +27,6 @@
 #define errprintf(...)  msg("hexagon: " __VA_ARGS__)
 #endif
 
-FILE *g_log;
 
 
 // object providing an output target for the bfd code, so
@@ -121,6 +121,7 @@ private:
     }
 };
 
+extern "C" const bfd_arch_info_type bfd_hexagon_arch;
 
 // object wrapping calls to the objdump code 
 struct hexagon_disasm {
@@ -148,9 +149,19 @@ struct hexagon_disasm {
 
     int insnsize;
 
+    const bfd_arch_info_type *find_arch(const char*arch)
+    {
+        for (auto p= &bfd_hexagon_arch; p ; p= p->next)
+            if (strstr(p->printable_name, arch))
+                return p;
+        return &bfd_hexagon_arch;
+    }
+
     hexagon_disasm()
     {
-        disfn= hexagon_get_disassembler_from_mach(4, 0);
+        bfd  abfd= {0};
+        abfd.arch_info= find_arch("v55");
+        disfn= hexagon_get_disassembler(&abfd);
 
         memset(&info,0,sizeof(info));
 
@@ -180,6 +191,11 @@ struct hexagon_disasm {
         // note: the first instruction of a segment ( without valid preceeding instructions )
         // may be disassembled incorrectly when it uses 'immext', because static variables inside objdump
         // are not reset correctly.
+        //
+        // todo: process dummy NOPs to clear state.
+        // then keep track of hexagon packet starts by using SetFlags(0x20000000)
+        //
+        // todo: always disasm complete packet, then feed ida information per packet.
         if (lastea!=ea && lastea!=ea-4) {
             for (int i=-12 ; i<0 ; i+=4) {
                 addrs.clear();
@@ -300,14 +316,21 @@ bool haspp(uint32_t w)
 {
     return (w&0xc000)!=0;
 }
+bool is_duplex_insn(uint32_t w)
+{
+    return (w&0xc000)==0;
+}
+
 bool is_packet_end(uint32_t w)
 {
-    return (w&0xc000)==0xc000;
+    return ((w&0xc000)==0xc000) || is_duplex_insn(w);
 }
+// 01110001ii1xxxxxPPiiiiiiiiiiiiii  Rx.L=#u16
 bool is_load_low(uint32_t w)
 {
     return haspp(w) && ((w&0xff200000)==0x71200000);
 }
+// 01110010ii1xxxxxPPiiiiiiiiiiiiii  Rx.H=#u16
 bool is_load_high(uint32_t w)
 {
     return haspp(w) && ((w&0xff200000)==0x72200000);
@@ -337,27 +360,34 @@ int get_load_regnum(uint32_t w)
     return (w>>16)&0x1f;
 }
 
+//  0101101iiiiiiiiiPPiiiiiiiiiiiii0  call #r22:2
+//  01011101ii0iiiiiPPi-0-uuiiiiiii-  if (Pu) call #r15:2
+//  01011101ii1iiiiiPPi-0-uuiiiiiii-  if (!Pu) call #r15:2
 bool is_immediate_call_insn(uint32_t w)
 {
-    if (!haspp(w))
+    if (is_duplex_insn(w))
         return false;
-    return ((w&0xFF001800)==0x5D000000) // if ( ? Pu4 ) call #r15:2
+    return ((w&0xFF000800)==0x5D000000) // if ( ? Pu4 ) call #r15:2
         || ((w&0xFE000001)==0x5A000000);// call #r22:2
 
 //        H.disasm(ea);
 //        if (H.text.find("call")!=H.text.npos)
 //            return 2;
 }
+//  01010000101sssssPP--------------  callr Rs
+//  01010001000sssssPP----uu--------  if (Pu) callr Rs
+//  01010001001sssssPP----uu--------  if (!Pu) callr Rs
 bool is_register_call_insn(uint32_t w)
 {
-    if (!haspp(w))
+    if (is_duplex_insn(w))
         return false;
     return ((w&0xFFE00000)==0x50a00000) // callr Rs32
         || ((w&0xFFC00000)==0x51000000);// if ( ? Pu4 ) callr Rs32
 }
+// 01010010100sssssPP--------------  jumpr Rs
 bool is_register_jump(uint32_t w)
 {
-    if (!haspp(w))
+    if (is_duplex_insn(w))
         return false;
     return (w&0xffe00000)==0x52800000;  // jumpr Rs
 }
@@ -365,40 +395,44 @@ int get_jump_register(uint32_t w)
 {
     return (w>>16)&0x1f;
 }
+// 0101100iiiiiiiiiPPiiiiiiiiiiiii-  jump #r22:2
+// 0001-110--iiddddPPIIIIIIiiiiiii-  Rd=#U6 ; jump #r9:2
+// 0001-111--iissssPP--ddddiiiiiii-  Rd=Rs ; jump #r9:2
 bool is_relative_jump(uint32_t w)
 {
-    if (!haspp(w))
+    if (is_duplex_insn(w))
         return false;
     return ((w&0xfe000000)==0x58000000)   // jump #imm
-        || ((w&0xf6000000)==0x16000000);  // Rd16 = #U6 ; jump #r9:2
+        || ((w&0xf6000000)==0x16000000);  // Rd16 = [ #U6 | Rs16 ] ; jump #r9:2
 }
-bool is_jump_lr(uint32_t w)
+
+// L2  1111101---0--   dealloc_return
+// L2  1111111---0--   jumpr R31                        Return
+//     2109876543210
+bool is_sub_return(uint16_t w)
 {
-    if (haspp(w))
-        return false;
-
-    return ((w&0xa0003fc4) == 0x00003fc0)
-         || ((w&0xf0003fc4) == 0x20001fc0)
-         || ((w&0xf8003fc4) == 0x30001fc0)
-         || ((w&0xfe003fc4) == 0x3c001fc0)
-         || ((w&0xff003fc4) == 0x3e001fc0)
-         || ((w&0xffc43fc4) == 0x3f001fc0);
+    return (w&0x1f44) == 0x1f40;
 }
-
 bool is_return(uint32_t w)
 {
-    if (!haspp(w))
-        return false;
-      if (is_register_jump(w) && get_jump_register(w)==31) // jumpr r31
-          return true;
-    return ((w&0xe0003f44)==0x00003f40) //  000- ----  ---- ----   PP11 1111  -1-- -0--
-        || ((w&0xf0003f44)==0x20001f40) //  0010 ----  ---- ----   PP01 1111  -1-- -0--
-        || ((w&0xf8003f44)==0x30001f40) //  0011 0---  ---- ----   PP01 1111  -1-- -0--
-        || ((w&0xfe003f44)==0x3c001f40) //  0011 110-  ---- ----   PP01 1111  -1-- -0--
-        || ((w&0xff003f44)==0x3e001f40) //  0011 1110  ---- ----   PP01 1111  -1-- -0--
-        || ((w&0xffc43fc4)==0x3f001fc0) //  0011 1111  00-- -0--   PP01 1111  11-- -0--
-        || ((w&0xe0003f44)==0x40003f40) //  010- ----  ---- ----   PP11 1111  -1-- -0--
-        || ((w&0xffff3c1f)==0x961e001e);//  1001 0110  0001 1110   PP00 00--  ---1 1110 
+    if (is_register_jump(w) && get_jump_register(w)==31) // jumpr r31
+        return true;
+    if (!is_duplex_insn(w)) {
+        return ((w&0xffff3c1f)==0x961e001e); // 1001011000011110PP0000-----11110  dealloc_return
+    }
+    uint8_t iclass= ((w>>29)<<1) | ((w>>13)&1);
+    uint16_t ilow= w&0x1fff;
+    uint16_t ihigh= (w>>16)&0x1fff;
+
+    // note: jump ( and i assume deallocreturn )  must be in slot#0
+    if (iclass==1 && is_sub_return(ilow))
+        return true;
+    if (iclass==2 && is_sub_return(ilow))
+        return true;
+    if (iclass==5 && is_sub_return(ilow))
+        return true;
+
+    return false;
 }
 bool is_immext(uint32_t w)
 {
@@ -414,13 +448,10 @@ bool is_basic_block_end(uint32_t w)
         return true;
     if (is_relative_jump(w))
         return true;
-    if (is_jump_lr(w))
-        return true;
     if (is_return(w))
         return true;
     return false;
 }
-
 
 
 // ----- output functions
@@ -440,9 +471,8 @@ void header(void)
 void footer(void)
 {
     hextracelog("added footer\n");
-    char name[MAXSTR];
-    get_colored_name(BADADDR, inf.beginEA, name, sizeof(name));
-    printf_line(-1,COLSTR("%s",SCOLOR_ASMDIR) " %s", ash.end, name);
+    qstring name = get_colored_name(BADADDR, inf.beginEA);
+    printf_line(-1,COLSTR("%s",SCOLOR_ASMDIR) " %s", ash.end, name.c_str());
 }
 
 void segstart(ea_t ea)
@@ -468,7 +498,9 @@ enum insns {
     insn_jump,
     insn_stop
 };
-// empty for now
+
+// these instructions are only used internally in this processor module, 
+// they are not actually shown.
 instruc_t Instructions[] = {
     { "",             0         },
     { "call",         CF_CALL   },
@@ -484,8 +516,10 @@ int idaapi ana(void)
     if (H.text.find("<unknown>")!=H.text.npos)
         return 0;
 
-    static ea_t prevea;
-    static int  packetflags;
+    static ea_t prevea;           // what instruction did we previously process?
+    static int  packetflags;      // used to keep track of the current packet properties
+
+    // when not going through the code linearly reset the flags.
     if (prevea+4!=cmd.ea) {
         packetflags= 0;
     }
@@ -505,7 +539,7 @@ int idaapi ana(void)
     else if (is_immediate_call_insn(opcode)) {
         cmd.itype= insn_call;
     }
-    else if (is_relative_jump(opcode) || is_register_jump(opcode) || is_jump_lr(opcode)) {
+    else if (is_relative_jump(opcode) || is_register_jump(opcode) || is_return(opcode)) {
         packetflags |= CF_STOP;
         if (is_packet_end(opcode))
             cmd.itype= insn_stop;
@@ -611,8 +645,9 @@ int idaapi emu(void)
     hextracelog("emu(%08x), itype=%d\n", cmd.ea, cmd.itype);
     uint32_t insn= get_long(cmd.ea);
 
+    // note: insn_jump and insn_stop do not cause a cref fl_F
     if (cmd.itype==insn_call || cmd.itype==insn_other) {
-        printf("adding flow %08x -> +%d\n", cmd.ea, cmd.size);
+        //printf("adding flow %08x -> +%d\n", cmd.ea, cmd.size);
         ua_add_cref(0,cmd.ea+cmd.size,fl_F);
     }
 
@@ -762,10 +797,12 @@ static int notify(processor_t::idp_notify msgid, ...) // Various messages:
           break;
       case ph.term:
           hextracelog("term()\n");
+#ifdef TRACELOG
           if (g_log) {
               qfclose(g_log);
               g_log= NULL;
           }
+#endif
           break;
       case ph.newprc:
           hextracelog("newprc(%d)\n", va_argi(va, int));
@@ -1086,8 +1123,10 @@ static int notify(processor_t::idp_notify msgid, ...) // Various messages:
     }
     va_end(va);
 
+#ifdef TRACELOG
     if (g_log)
         qflush(g_log);
+#endif
     return(1);
 }
 
