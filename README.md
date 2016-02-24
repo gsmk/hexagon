@@ -37,10 +37,10 @@ This processor module is a wrapper for the objdump code found on [sourcery.mento
 Binary download
 -------
 
-Binaries for OSX, Linux and Windows can be found here:
-  * [OS X](http://github.com/gsmk/hexagon/releases/)
-  * [Linux](http://github.com/gsmk/hexagon/releases/)
-  * [Windows](http://github.com/gsmk/hexagon/releases/)
+Binaries for OSX, Linux and Windows can be found under [releases](https://github.com/gsmk/hexagon/releases):
+  * [OS X](https://github.com/gsmk/hexagon/releases/download/v1.1/hexagon.imc)
+  * [Linux](https://github.com/gsmk/hexagon/releases/download/v1.1/hexagon.ilx)
+  * [Windows](https://github.com/gsmk/hexagon/releases/download/v1.1/hexagon.w32)
 
 Installation
 -------
