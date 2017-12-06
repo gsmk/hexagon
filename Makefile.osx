@@ -1,67 +1,74 @@
 include ../idacfg.mk
+IDAVER=7
+
+ifeq ($(IDAVER),6)
+IMCEXT=.imc
+ARCHFLAGS=-m32
+endif
+
+ifeq ($(IDAVER),7)
+IMCEXT=.dylib
+ARCHFLAGS=-m64 -D__X64__
+endif
+
 
 all:
 
 # I put some not yet published targets in this optional include
--include Makefile.extra
+#-include Makefile.extra
 
 CXX=clang++
 CC=clang
 LD=clang++
 
-TARGETS+=hexagon.imc
+TARGETS+=hexagon$(IMCEXT)
 
 # where the quicinc objdump source can be found
-gnutools= hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03
+gnutools=hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03
 
 gnutoolsincludes=-I $(gnutools)/include -I $(gnutools)/bfd -I $(gnutools)/include/opcode
 gnutoolsincludes+=-I ./build-mac/opcodes -I ./build-mac/bfd
-CFLAGS=-g -D__MAC__ -D__IDP__ -I $(idasdk)/include
+CFLAGS=-D__MAC__ -D__IDP__ -I $(idasdk)/include
 CFLAGS+=-DUSE_STANDARD_FILE_FUNCTIONS  
 CFLAGS+=-DUSE_DANGEROUS_FUNCTIONS
 CFLAGS+=-D_FORTIFY_SOURCE=0
-CFLAGS+=-O0 -g
+CFLAGS+=-g $(if $(D),-O0,-O2)
+LDFLAGS+=-g
 
 # add this flag when you want verbose logging
-#CFLAGS+=-DTRACELOG
+CFLAGS+=$(if $(LOG),-DTRACELOG)
 
 all: $(TARGETS)
 
-hexagon.imc: hexagon.o32 gt_safe-ctype.o32  gt_hexagon-dis.o32 gt_hexagon-opc.o32 gt_hexagon-isa.o32 bfd_funcs.o32 gt_cpu-hexagon.o32 dummy-scan.o32
+hexagon$(IMCEXT): hexagon.obj gt_safe-ctype.obj  gt_hexagon-dis.obj gt_hexagon-opc.obj gt_hexagon-isa.obj bfd_funcs.obj gt_cpu-hexagon.obj dummy-scan.obj
+	$(LD) $(LDFLAGS) -dynamiclib $(ARCHFLAGS) -o $@ $^  "$(idabin)/libida.dylib"
+
 cflags_cpu-hexagon= $(gnutoolsincludes)
 cflags_hexagon= $(gnutoolsincludes)
 cflags_bfd_funcs= $(gnutoolsincludes)
 
-install:  hexagon.imc
+install:  hexagon$(IMCEXT)
 	cp $^  "$(idabin)/procs"
 
 clean:
-	$(RM) $(TARGETS) $(wildcard *.o) $(wildcard *.o32)
+	$(RM) $(TARGETS) $(wildcard *.obj)
 
 
-%.o32: %.cpp
-	$(CXX) -m32 -std=c++11 -c -o$@ $^ $(cflags_$(basename $(notdir $@))) $(CFLAGS)
-%.o32: %.c
-	$(CC) -m32  -c -o$@ $^ $(cflags_$(basename $(notdir $@))) $(CFLAGS)
+%.obj: %.cpp
+	$(CXX) $(ARCHFLAGS) -std=c++1z -c -o$@ $^ $(cflags_$(basename $(notdir $@))) $(CFLAGS)
+%.obj: %.c
+	$(CC) $(ARCHFLAGS)  -c -o$@ $^ $(cflags_$(basename $(notdir $@))) $(CFLAGS)
 
-gt_%.o32: $(gnutools)/libiberty/%.c
-	$(CC) -m32 -c -o$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
+gt_%.obj: $(gnutools)/libiberty/%.c
+	$(CC) $(ARCHFLAGS) -c -o$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
 
-gt_%.o32: $(gnutools)/opcodes/%.c
-	$(CC) -m32 -c -Wstrict-prototypes -Wmissing-prototypes -o$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
+gt_%.obj: $(gnutools)/opcodes/%.c
+	$(CC) $(ARCHFLAGS) -c -Wstrict-prototypes -Wmissing-prototypes -o$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
 
-gt_%.o32: $(gnutools)/bfd/%.c
-	$(CC) -m32 -c -Wstrict-prototypes -Wmissing-prototypes -o$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
+gt_%.obj: $(gnutools)/bfd/%.c
+	$(CC) $(ARCHFLAGS) -c -Wstrict-prototypes -Wmissing-prototypes -o$@ $^ $(cflags_$(basename $(notdir $@)))  $(gnutoolsincludes) $(CFLAGS)
 
-%.o32: %.s
-	$(CXX) -c -m32 -o$@ $^
+%.obj: %.s
+	$(CXX) -c $(ARCHFLAGS) -o$@ $^
 
-%.imc: %.o32
-	$(LD) -dynamiclib -m32 -o $@ $^  "$(idabin)/libida.dylib"
-
-%: %.o
-	$(CXX) -g -o $@ $^  
-
-%32: %.o32
-	$(CXX) -m32 -g -o $@ $^  
 

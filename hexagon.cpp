@@ -1,3 +1,9 @@
+/*
+ * A Hexagon Processor module for IDAPRO.
+ *
+ * Author: Willem Hengeveld <itsme@gsmk.de>
+ *
+ */
 #include <name.hpp>
 #include <idp.hpp>
 #include <auto.hpp>         // atype_t
@@ -12,22 +18,35 @@
 #include <map>
 #include <list>
 
+#include "logging.h"
+#include "pmbase.h"
+
+#if IDA_SDK_VERSION == 700
+#ifdef IDA70BETA3
+#define get_many_bytes(ea, buf, size) get_bytes(ea, buf, size)
+#else
+#define get_many_bytes(ea, buf, size) get_bytes(buf, size, ea)
+#endif
+#define procName procname
+#endif
+
 #ifdef _WIN32
 #define strtoll _strtoui64
 #endif
 
-#ifdef TRACELOG
-FILE *g_log;
-#define hextracelog(...)  qfprintf(g_log, __VA_ARGS__)
-#define dbgprintf(...)  qfprintf(g_log, __VA_ARGS__)
-#define errprintf(...)  qfprintf(g_log, "ERROR: " __VA_ARGS__)
-#else
-#define hextracelog(...)
-#define dbgprintf(...)
-#define errprintf(...)  msg("hexagon: " __VA_ARGS__)
-#endif
+static const char *const shnames[] = { "QDSP6", NULL };
+static const char *const lnames[] = { "Qualcomm Hexagon DSP v4", NULL };
 
-
+// for debugging
+std::string hexdump(const char*buf, size_t n)
+{
+    std::string s;
+    s.resize(n*3);
+    char *p = &s[0];
+    while (n--)
+        p += qsnprintf(p, 4, " %02x", (unsigned char)*buf++);
+    return s;
+}
 
 // object providing an output target for the bfd code, so
 // this IDA module will be able to use the output.
@@ -41,6 +60,7 @@ struct disasmoutput {
         info->stream = this;
     }
 
+    __attribute__((__format__ (__printf__, 2, 0)))
     int vprintf(const char*fmt, va_list va)
     {
         text.resize(text.size()+256);
@@ -48,6 +68,7 @@ struct disasmoutput {
         text.resize(text.size()-256+n);
         return n;
     }
+    __attribute__((__format__ (__printf__, 2, 0)))
     static int staticprintf(disasmoutput*obj, const char*fmt, ...)
     {
         va_list va;
@@ -196,6 +217,8 @@ struct hexagon_disasm {
         // then keep track of hexagon packet starts by using SetFlags(0x20000000)
         //
         // todo: always disasm complete packet, then feed ida information per packet.
+        //
+        // * packet ends in: insn with PP=11, or a duplexinsn: PP=00
         if (lastea!=ea && lastea!=ea-4) {
             for (int i=-12 ; i<0 ; i+=4) {
                 addrs.clear();
@@ -212,6 +235,7 @@ struct hexagon_disasm {
 
         dbgprintf("disfn(%08x)\n", ea);
         disfn(ea, &info);
+        dbgprintf("   -> '%s'\n", out.text.c_str());
 
         lastea= ea;
         insnsize= 4;
@@ -248,17 +272,22 @@ struct hexagon_disasm {
             size_t e1= text.find_first_not_of("-0123456789abcdefx", n1);
             char *endptr=(e1==std::string::npos) ? (&text[0]+text.size()) : &text[e1];
 
-            char *p;
-            int64_t value= strtoll(&text[n1], &p, 0);
+            if (e1>n1) {
 
-            if (p!=endptr) {
-                errprintf("NOTE: strtoll decoded differently: str='%s',  num=%d..%d,  strtoll: ..%d\n",
-                        text.c_str(), (int)n1, (int)e1, p-&text[0]);
+                char *p;
+                int64_t value= strtoll(&text[n1], &p, 0);
+
+                if (p!=endptr) {
+                    errprintf("NOTE: strtoll decoded differently: str='%s',  num=%d..%d,  strtoll: ..%d\n",
+                            text.c_str(), (int)n1, (int)e1, int(p-&text[0]));
+                }
+                
+                //dbgprintf("const: (#)%d .. (^#)%d  (e)%d  (p)%d  (endnum)%d  '%s' -> %d\n", (int)h1, (int)n1, (int)e1, int(p-&text[0]), int(endptr-&text[0]), text.c_str(), value);
+
+                imms.push_back(value);
+
+                text.replace(n1, e1-n1, "$");
             }
-
-            imms.push_back(value);
-
-            text.replace(n1, e1-n1, "$");
 
             pos= n1+1;
         }
@@ -337,13 +366,13 @@ bool is_load_high(uint32_t w)
 }
 bool isjumpfunc(ea_t ea)
 {
-   return (get_long(ea   )==0xBFFD7F1D     // { r29 = add (r29, #-8)
-        && get_long(ea+ 4)==0xA79DFCFE     //   memw (r29 + #-8) = r28 }
-        && is_load_high(get_long(ea+ 8))   // r28.h = #0x42F7
-        && is_load_low(get_long(ea+ 12))   // r28.l = #0x9F10
-        && get_long(ea+16)==0xB01D411D     // { r29 = add (r29, #8)
-        && get_long(ea+20)==0x529C4000     //   jumpr r28
-        && get_long(ea+24)==0x919DC01C);   //   r28 = memw (r29 + #0) }
+   return (get_dword(ea   )==0xBFFD7F1D     // { r29 = add (r29, #-8)
+        && get_dword(ea+ 4)==0xA79DFCFE     //   memw (r29 + #-8) = r28 }
+        && is_load_high(get_dword(ea+ 8))   // r28.h = #0x42F7
+        && is_load_low(get_dword(ea+ 12))   // r28.l = #0x9F10
+        && get_dword(ea+16)==0xB01D411D     // { r29 = add (r29, #8)
+        && get_dword(ea+20)==0x529C4000     //   jumpr r28
+        && get_dword(ea+24)==0x919DC01C);   //   r28 = memw (r29 + #0) }
 }
 uint16_t getloadhalfword(uint32_t w)
 {
@@ -351,8 +380,8 @@ uint16_t getloadhalfword(uint32_t w)
 }
 uint32_t getjumpfunctarget(ea_t ea)
 {
-        uint16_t high= getloadhalfword(get_long(ea+ 8));
-        uint16_t low = getloadhalfword(get_long(ea+ 12));
+        uint16_t high= getloadhalfword(get_dword(ea+ 8));
+        uint16_t low = getloadhalfword(get_dword(ea+ 12));
         return (high<<16)|low;
 }
 int get_load_regnum(uint32_t w)
@@ -454,44 +483,6 @@ bool is_basic_block_end(uint32_t w)
 }
 
 
-// ----- output functions
-void header(void)
-{
-    hextracelog("added header\n");
-    gen_cmt_line("Processor       : %s", inf.procName);
-    gen_cmt_line("Target assembler: %s", ash.name);
-    gen_cmt_line("Byte sex        : %s", inf.mf ? "Big endian" : "Little endian");
-    gen_cmt_line("");
-    gen_cmt_line("Hexagon processor module (c) 2013 GSMK");
-    gen_cmt_line("author: Willem Jan Hengeveld, itsme@gsmk.de");
-//if ( ash.header != NULL )
-//  for ( auto ptr=ash.header; *ptr != NULL; ptr++ )
-//    printf_line(0,COLSTR("%s",SCOLOR_ASMDIR),*ptr);
-}
-void footer(void)
-{
-    hextracelog("added footer\n");
-    qstring name = get_colored_name(BADADDR, inf.beginEA);
-    printf_line(-1,COLSTR("%s",SCOLOR_ASMDIR) " %s", ash.end, name.c_str());
-}
-
-void segstart(ea_t ea)
-{
-    hextracelog("segment start(%08x)\n", ea);
-    gen_cmt_line("segstart");
-}
-void segend(ea_t ea)
-{
-    hextracelog("segment end(%08x)\n", ea);
-    gen_cmt_line("segend");
-}
-
-// Analyze one instruction and fill 'cmd' structure.
-// cmd.ea contains address of instruction to analyze.
-// Return length of the instruction in bytes, 0 if instruction can't be decoded.
-// This function shouldn't change the database, flags or anything else.
-// All these actions should be performed only by u_emu() function.
-
 enum insns {
     insn_other,
     insn_call,
@@ -509,121 +500,17 @@ instruc_t Instructions[] = {
 };
 
 
-int idaapi ana(void)
+
+void force_offset(const insn_t &cmd, int n, ea_t base, bool issub = false)
 {
-    hextracelog("ana(%08x)\n", cmd.ea);
-    H.disasm(cmd.ea);
-    if (H.text.find("<unknown>")!=H.text.npos)
-        return 0;
-
-    static ea_t prevea;           // what instruction did we previously process?
-    static int  packetflags;      // used to keep track of the current packet properties
-
-    // when not going through the code linearly reset the flags.
-    if (prevea+4!=cmd.ea) {
-        packetflags= 0;
-    }
-
-    cmd.size= H.insnsize;
-
-    uint32_t opcode= get_long(cmd.ea);
-
-    // handle instruction packet boundaries
-    if (is_return(opcode)) {
-        packetflags |= CF_STOP;
-        if (is_packet_end(opcode))
-            cmd.itype= insn_stop;
-        else
-            cmd.itype= insn_other;
-    }
-    else if (is_immediate_call_insn(opcode)) {
-        cmd.itype= insn_call;
-    }
-    else if (is_relative_jump(opcode) || is_register_jump(opcode) || is_return(opcode)) {
-        packetflags |= CF_STOP;
-        if (is_packet_end(opcode))
-            cmd.itype= insn_stop;
-        else
-            cmd.itype= insn_other;
-    }
-    else {
-        if (is_packet_end(opcode)) {
-            if (packetflags&CF_STOP)
-                cmd.itype= insn_stop;
-            else
-                cmd.itype= insn_other;
-        }
-        else {
-            cmd.itype= insn_other;
-        }
-    }
-    dbgprintf("%08x -> type: %s, flags=%x\n", cmd.ea, Instructions[cmd.itype].name, packetflags);
-
-
-    // translate operands
-
-    op_t *op= cmd.Operands;
-    op_t *opend = cmd.Operands+6;
-
-    int ia= 0;
-    int im= 0;
-    for (std::string::iterator i= H.text.begin() ; i != H.text.end() ; ++i)
+    uint32_t target= cmd.ops[0].value + base;
+    if ( !is_off(get_flags(cmd.ea), n)
+      || get_offbase(cmd.ea, n) != base )
     {
-        switch(*i) {
-            case '@':
-                if (op==opend) {
-                    errprintf("too many operands: '%s'\n", H.text.c_str());
-                }
-                else if (ia<H.addrs.size()) {
-                    op->type= o_near;
-                    op->addr= H.addrs[ia++];
-                    op->dtyp  = dt_code;
-
-                    dbgprintf("ana->op%d : adr %08x\n", op->n, op->addr);
-
-                    op++;
-                }
-                else {
-                    errprintf("too many addresses(%d>=%zd): '%s'\n", ia, H.addrs.size(), H.text.c_str());
-                }
-                break;
-            case '$':
-                if (op==opend) {
-                    errprintf("too many operands: '%s'\n", H.text.c_str());
-                }
-                else if (im<H.imms.size()) {
-                    op->type= o_imm;
-                    op->value= H.imms[im++];
-                    op->dtyp  = dt_dword;
-
-                    dbgprintf("ana->op%d : imm %08x\n", op->n, op->value);
-
-                    op++;
-                }
-                else {
-                    errprintf("too many immediates: '%s'\n", H.text.c_str());
-                }
-
-                break;
-        }
-    }
-
-    if (is_packet_end(opcode))
-        packetflags= 0;
-    prevea= cmd.ea;
-    return cmd.size;
-}
-
-void force_offset(ea_t ea, int n, ea_t base, bool issub = false)
-{
-    uint32_t target= cmd.Operands[0].value + base;
-    if ( !isOff(get_flags_novalue(ea), n)
-      || get_offbase(ea, n) != base )
-    {
-        if (isEnabled(target)) {
+        if (is_mapped(target)) {
             refinfo_t ri;
             ri.init(REF_OFF32|REFINFO_NOBASE|(issub ? REFINFO_SUBTRACT : 0), base);
-            int rc1= op_offset_ex(ea, n, &ri);
+            int rc1= op_offset_ex(cmd.ea, n, &ri);
             dbgprintf("%08x->%08x opoff base=%08x -> %d\n", cmd.ea, target, base, rc1);
         }
         else {
@@ -634,507 +521,9 @@ void force_offset(ea_t ea, int n, ea_t base, bool issub = false)
         dbgprintf("%08x->%08x opoff already done\n", cmd.ea, target);
     }
 }
-//
-// Emulate instruction, create cross-references, plan to analyze
-// subsequent instructions, modify flags etc. Upon entrance to this function
-// all information about the instruction is in 'cmd' structure.
-// If zero is returned, the kernel will delete the instruction.
-
-int idaapi emu(void)
-{
-    hextracelog("emu(%08x), itype=%d\n", cmd.ea, cmd.itype);
-    uint32_t insn= get_long(cmd.ea);
-
-    // note: insn_jump and insn_stop do not cause a cref fl_F
-    if (cmd.itype==insn_call || cmd.itype==insn_other) {
-        //printf("adding flow %08x -> +%d\n", cmd.ea, cmd.size);
-        ua_add_cref(0,cmd.ea+cmd.size,fl_F);
-    }
-
-    // attempt to convert Rx32.[hl] = #u16  instruction pairs to real offsets
-    // problem is that doing so causes ida to get stuck trying to 'emu'
-    // the current instruction
-    if (is_load_low(insn)) {
-        int i=4;
-        while (i<=16) {
-            uint32_t previnsn= get_long(cmd.ea-i);
-            if (is_load_high(previnsn)) {
-                if (get_load_regnum(insn)==get_load_regnum(previnsn)) {
-                    force_offset(cmd.ea, 0, getloadhalfword(previnsn)<<16);
-                    break;
-                }
-            }
-            uint32_t nextinsn= get_long(cmd.ea+i);
-            if (is_load_high(nextinsn)) {
-                if (get_load_regnum(insn)==get_load_regnum(nextinsn)) {
-                    force_offset(cmd.ea, 0, getloadhalfword(nextinsn)<<16);
-                    break;
-                }
-            }
-
-            i+=4;
-        }
-    }
-
-    for (int i=0 ; i<6 ; i++)
-    {
-        if (cmd.Operands[i].type==o_near) {
-            if (!is_immediate_call_insn(insn))
-                ua_add_cref(i, cmd.Operands[i].addr, fl_JN);
-            else
-                ua_add_cref(i, cmd.Operands[i].addr, fl_CN);
-        }
-        else if (cmd.Operands[i].type==o_imm) {
-            if (!is_immext(insn)) {
-                if (isEnabled(cmd.Operands[i].value))
-                    force_offset(cmd.ea, i, 0);
-                if (isOff(getFlags(cmd.ea), i)) {
-                    dbgprintf("adding drefs\n");
-                    //ua_add_dref(i, target, dr_O);
-                    ua_add_off_drefs(cmd.Operands[i], dr_O);
-                }
-
-            }
-            else {
-                op_num(cmd.ea, i);
-            }
-        }
-    }
-    return 1;
-}
-
-// Generate text representation of an instruction in 'cmd' structure.
-// This function shouldn't change the database, flags or anything else.
-// All these actions should be performed only by u_emu() function.
-
-void idaapi out(void)
-{
-    char buf[MAXSTR];
-    init_output_buffer(buf, sizeof(buf));
-    hextracelog("out(%08x)\n", cmd.ea);
-
-    H.disasm(cmd.ea);
-
-    std::string txt= H.text;
-    int io= 0;
-    for (std::string::iterator i= txt.begin() ; i != txt.end() ; ++i)
-    {
-        //dbgprintf("%p [ %p-%p ] : %02x\n", &*i, &*txt.begin(), &*txt.end(), *i);
-        switch(*i) {
-            case '$':
-            case '@':
-                if (io==6) {
-                    errprintf("@%08x/%d: too many operands: '%s'\n", cmd.ea, i-txt.begin(), txt.c_str());
-                    return;
-                }
-                else {
-                    out_one_operand(io++);
-                    dbgprintf("out:%d  -> %s\n", io-1, buf);
-                }
-                break;
-            default:
-                out_symbol(*i);
-        }
-    }
-    term_output_buffer();
-
-    dbgprintf("out:%s\n", buf);
-    gl_comm = 1;                  // generate a user defined comment on this line
-    MakeLine(buf, -1);
-}
-
-// Generate text representation of an instructon operand.
-// This function shouldn't change the database, flags or anything else.
-// All these actions should be performed only by u_emu() function.
-// The output text is placed in the output buffer initialized with init_output_buffer()
-// This function uses out_...() functions from ua.hpp to generate the operand text
-// Returns: 1-ok, 0-operand is hidden.
-
-bool  idaapi outop(op_t &op)
-{
-    //dbgprintf("op %d: d:%x/f:%x/t:%x, value=%x, addr=%x\n", op.n, op.dtyp, op.flags, op.type, op.value, op.addr);
-    if (op.type==o_near) {
-        char symbuf[256];
-        size_t n= get_name_expr(cmd.ea+op.offb, op.n, op.addr, op.addr, symbuf, 256);
-        if (n)
-            OutLine(symbuf);
-        else
-            OutValue(op, OOF_ADDR);
-        return true;
-    }
-    else {
-
-        OutValue(op, OOFW_IMM);
-        return true;
-    }
-    return false;
-    //printf_line(-1, "op");
-}
-
-
-// registration
-static int notify(processor_t::idp_notify msgid, ...) // Various messages:
-{
-#ifdef TRACELOG
-    if (!g_log) g_log= qfopen("hexagon.log", "a+");
-#endif
-    va_list va;
-    va_start(va, msgid);
-
-// A well behaving processor module should call invoke_callbacks()
-// in his notify() function. If this function returns 0, then
-// the processor module should process the notification itself
-// Otherwise the code should be returned to the caller:
-
-    hextracelog("hexagon:notify msgid=%2d: ", msgid);
-    int code = invoke_callbacks(HT_IDP, msgid, va);
-    if ( code ) return code;
-
-    switch(msgid)
-    {
-      case ph.init:
-          hextracelog("init(%s)\n", va_arg(va, const char*));
-          break;
-      case ph.term:
-          hextracelog("term()\n");
-#ifdef TRACELOG
-          if (g_log) {
-              qfclose(g_log);
-              g_log= NULL;
-          }
-#endif
-          break;
-      case ph.newprc:
-          hextracelog("newprc(%d)\n", va_argi(va, int));
-          break;
-      case ph.newasm:
-          hextracelog("newasm(%d)\n", va_argi(va, int));
-          break;
-      case ph.newfile:
-          // extra linefeeds to increase visibility of this message
-          msg("\n\n");
-          msg("Hexagon/QDSP6 processor module v1.0 (C) 2013 GSMK, author: Willem Jan Hengeveld, itsme@gsmk.de\n");
-          msg("based on hexagon objdump from https://www.codeaurora.org/patches/quic/hexagon/4.0/Hexagon_Tools_source.tgz\n");
-          msg("\n");
-
-          hextracelog("newfile(%s)\n", va_arg(va, const char*));
-          break;
-      case ph.oldfile:
-          hextracelog("oldfile(%s)\n", va_arg(va, const char*));
-          break;
-      case ph.newseg:
-          {
-          segment_t *seg= va_arg(va, segment_t*);
-          hextracelog("newseg(%08x-%08x)\n", seg->startEA, seg->endEA);
-          }
-          break;
-      case ph.rename:
-          {
-              ea_t ea             = va_arg(va,ea_t );
-              const char *new_name= va_arg(va,const char *);
-
-              hextracelog("rename(%08x, '%s')\n", ea, new_name);
-          }
-          break;
-      case ph.renamed:
-          {
-              ea_t ea             = va_arg(va,ea_t );
-              const char *new_name= va_arg(va,const char *);
-              bool localname      = va_argi(va, bool);
-
-              hextracelog("rename(%08x, '%s', %d)\n", ea, new_name, localname);
-          }
-          break;
-
-      case ph.kernel_config_loaded:
-          hextracelog("kernel_config_loaded\n");
-          break;
-      case ph.loader_elf_machine:
-          {
-          /*linput_t *li             =*/ va_arg(va, linput_t *);
-          int machine_type          = va_argi(va, int );
-          /*const char **p_procname  =*/ va_arg(va, const char **);
-          /*void **p_pd              =*/ va_arg(va, void **);  // proc_def
-          /*void *set_reloc= */ va_arg(va, void *); // set_elf_reloc_t
-
-          hextracelog("loader_elf_machine, mt=%d\n", machine_type);
-          }
-          break;
-      case ph.str2reg:
-          hextracelog("str2reg('%s')\n", va_arg(va, const char*));
-          break;
-      case ph.loader_finished:
-          {
-          /*linput_t *li           =*/ va_arg(va, linput_t *);
-          uint16 neflags          = va_argi(va, uint16);
-          const char *filetypename= va_arg(va, const char *);
-          hextracelog("loader_finished(%04x, '%s')\n", neflags, filetypename);
-          }
-          break;
-      case ph.savebase:
-          hextracelog("savebase\n");
-          break;
-      case ph.closebase:
-          hextracelog("closebase\n");
-          break;
-
-
-      case ph.gen_asm_or_lst:
-          {
-          bool starting= va_argi(va, bool);
-          hextracelog("gen_asm_or_lst(%d)\n", starting);
-          }
-          break;
-      case ph.outlabel:
-          {
-          ea_t ea = va_arg(va, ea_t );
-          const char *colored_name = va_arg(va, const char *);
-          hextracelog("outlabel(%08x, '%s')\n", ea, colored_name);
-          }
-          break;
-      case ph.coagulate:
-          {
-          ea_t start_ea = va_arg(va, ea_t );
-          hextracelog("coagulate(%08x)\n", start_ea);
-          }
-          break;
-      case ph.auto_empty:
-          {
-          hextracelog("auto_empty\n");
-          }
-          break;
-      case ph.auto_empty_finally:
-          {
-          hextracelog("auto_empty_finally\n");
-          }
-          break;
-      case ph.auto_queue_empty:
-          {
-          atype_t type = va_arg(va, atype_t );
-          hextracelog("auto_queue_empty(%d)\n", type);
-          }
-          break;
-      case ph.custom_ana:
-          {
-          hextracelog("custom_ana, cmd:%08x\n", cmd.ea);
-          }
-          break;
-      case ph.custom_emu:
-          {
-          hextracelog("custom_emu, cmd:%08x\n", cmd.ea);
-          }
-          break;
-      case ph.custom_out:
-          {
-          hextracelog("custom_out, cmd:%08x\n", cmd.ea);
-          }
-          break;
-      case ph.custom_outop:
-          {
-          op_t *op= va_arg(va, op_t*);
-          hextracelog("custom_outop, cmd:%08x, n=%d   %08x\n", cmd.ea, op->n, op->addr);
-          }
-          break;
-      case ph.custom_mnem:
-          {
-          /*char *outbuffer= */va_arg(va, char*);
-          /*size_t bufsize= */va_arg(va, size_t);
-          hextracelog("custom_mnem()\n");
-          }
-          break;
-      case ph.make_data:
-          {
-          ea_t ea = va_arg(va, ea_t );
-          flags_t flags = va_arg(va, flags_t );
-          tid_t tid = va_arg(va, tid_t );
-          asize_t len = va_arg(va, asize_t );
-          hextracelog("make_data(%08x, 0x%x, %d, 0x%x)\n", ea, flags, tid, len);
-          }
-          break;
-      case ph.set_func_start:
-          {
-          func_t *pfn    =va_arg(va, func_t*);
-          ea_t new_start =va_arg(va, ea_t);
-
-          hextracelog("set_func_start(%08x, -> %08x)\n", pfn->startEA, new_start);
-          }
-          break;
-      case ph.set_func_end:
-          {
-          func_t *pfn    =va_arg(va, func_t*);
-          ea_t new_start =va_arg(va, ea_t);
-
-          hextracelog("set_func_end(%08x, -> %08x)\n", pfn->startEA, new_start);
-          }
-          break;
-      case ph.make_code:
-          {
-          ea_t ea = va_arg(va, ea_t );
-          asize_t len = va_arg(va, asize_t );
-          hextracelog("make_code(%08x, 0x%x)\n", ea, len);
-          }
-          break;
-      case ph.undefine:
-          {
-          ea_t ea = va_arg(va, ea_t );
-          hextracelog("undefine(%08x)\n", ea);
-          }
-          break;
-      case ph.func_bounds:
-          {
-          /*int *possible_return_code= */va_arg(va, int *);
-          func_t *pfn= va_arg(va, func_t *);
-          ea_t max_func_end_ea= va_arg(va, ea_t );
-          hextracelog("func_bounds(%08x,  %08x)\n", pfn->startEA, max_func_end_ea);
-          }
-          break;
-      case ph.may_be_func:
-          {
-          int state= va_arg(va, int );
-          hextracelog("may_be_func(%d)\n", state);
-          }
-          break;
-      case ph.is_sane_insn:
-          {
-          int no_crefs= va_arg(va, int );
-          hextracelog("is_sane_insn(%d)\n", no_crefs);
-          }
-          break;
-      case ph.is_jump_func:
-          {
-          func_t *pfn= va_arg(va, func_t *);
-          ea_t *jump_target=  va_arg(va, ea_t *);
-          ea_t *func_pointer= va_arg(va, ea_t *);
-          if (isjumpfunc(pfn->startEA)) {
-              *jump_target= getjumpfunctarget(pfn->startEA);
-              if (func_pointer)
-                  *func_pointer= -1;
-              hextracelog("is_jump_func(%08x)-> yes: %08x\n", pfn->startEA, *jump_target);
-              return 2;
-          }
-          else {
-              hextracelog("is_jump_func(%08x)-> no\n", pfn->startEA);
-          }
-          }
-          break;
-
-      case ph.is_basic_block_end: // only when PR_DELAYED is set in LPH.flags
-          {
-          bool call_insn_stops_block= va_argi(va, bool );
-          hextracelog("is_basic_block_end(%d)\n", call_insn_stops_block);
-          if (is_basic_block_end(get_long(cmd.ea)))
-              return 2;
-          }
-          break;
-
-      case ph.is_call_insn:
-          {
-          ea_t ea= va_arg(va, ea_t );
-          bool iscall= false;
-          if (is_immediate_call_insn(get_long(ea)))
-              iscall= true;
-          hextracelog("is_call_insn(%08x) -> %d\n", ea, iscall);
-          if (iscall)
-              return 2;
-          }
-          break;
-      case ph.is_ret_insn:
-          {
-          ea_t ea= va_arg(va, ea_t );
-          bool strict= va_argi(va, bool );
-          hextracelog("is_ret_insn(%08x, %d)\n", ea, strict);
-
-          uint32_t insn= get_long(ea);
-          if (is_return(insn))
-              return 2;
-          }
-          break;
-      case ph.add_func:
-          {
-          func_t *pfn= va_arg(va, func_t *);
-          hextracelog("add_func(%08x)\n", pfn->startEA);
-          }
-          break;
-      case ph.preprocess_chart:
-          {
-          /*void *fc= */va_arg(va, void*);  // qflow_chart_t 
-          hextracelog("preprocess_chart()\n");
-          }
-          break;
-      case ph.add_cref:
-          {
-          ea_t from= va_arg(va, ea_t );
-          ea_t to= va_arg(va, ea_t );
-          cref_t type= va_argi(va, cref_t );
-          hextracelog("add_cref(%08x->%08x, %d)\n", from, to, type);
-          }
-          break;
-      case ph.del_cref:
-          {
-          ea_t from= va_arg(va, ea_t );
-          ea_t to= va_arg(va, ea_t );
-          bool expand= va_argi(va, bool );
-          hextracelog("del_cref(%08x->%08x, %d)\n", from, to, expand);
-          }
-          break;
-      case ph.get_bg_color:
-          {
-          ea_t ea = va_arg(va, ea_t );
-          /*bgcolor_t *color = */va_arg(va, bgcolor_t *);
-          hextracelog("get_bg_color(%08x)\n", ea);
-          }
-          break;
-      case ph.add_dref:
-          {
-          ea_t from = va_arg(va, ea_t );
-          ea_t to = va_arg(va, ea_t );
-          dref_t type = va_argi(va, dref_t );
-          hextracelog("add_dref(%08x->%08x, %d)\n", from, to, type);
-          }
-          break;
-      case ph.del_dref:
-          {
-          ea_t from= va_arg(va, ea_t );
-          ea_t to= va_arg(va, ea_t );
-          hextracelog("del_dref(%08x->%08x)\n", from, to);
-          }
-          break;
-
-      case ph.coagulate_dref:
-          {
-          ea_t from = va_arg(va, ea_t );
-          ea_t to = va_arg(va, ea_t );
-          bool may_define = va_argi(va, bool );
-          /*ea_t *code_ea =*/ va_arg(va, ea_t *);
-          hextracelog("coagulate_dref(%08x->%08x, %d)\n", from, to, may_define);
-          }
-          break;
-
-      case ph.get_reg_info:
-          {
-            const char *regname        = va_arg(va,const char *);
-            /*const char **main_regname  = */va_arg(va,const char **);
-            /*uint64 *mask               = */va_arg(va,uint64* );
-            hextracelog("get_reg_info('%s')\n", regname);
-          }
-          break;
-      default:
-          hextracelog("unhandled notification\n");
-    }
-    va_end(va);
-
-#ifdef TRACELOG
-    if (g_log)
-        qflush(g_log);
-#endif
-    return(1);
-}
 
 
 // module registration
-
-static const char *const shnames[] = { "QDSP6", NULL };
-static const char *const lnames[] = { "Qualcomm Hexagon DSP v4", NULL };
 
 static asm_t gas = {
     ASH_HEXF3|ASD_DECF0|ASO_OCTF1|ASB_BINF3|AS_N2CHR|AS_LALIGN|AS_1TEXT|AS_ONEDUP|AS_COLON,
@@ -1142,7 +531,6 @@ static asm_t gas = {
   "GNU assembler",              // name
     0,                            // help
     NULL,                         // header
-    NULL,                         // bad instructions
   ".org",                       // origin
   ".end",                       // end
 
@@ -1165,12 +553,6 @@ static asm_t gas = {
   ".ds.b %s",   // bss
   ".equ",       // equ
     NULL,         // seg
-
-    NULL,         // int (*checkarg_preline)(char *argstr, s_preline *S);
-    NULL,         // char *(*checkarg_atomprefix)(char *operand,int *res);
-    NULL,         // char *checkarg_operations;
-
-    NULL,         // uchar *XlatAsciiOutput
   ".",          // char *a_curip;
     NULL,         // function header
     NULL,         // function footer
@@ -1189,6 +571,16 @@ static asm_t gas = {
   ">>",    // shl
   "<<",    // shr
     NULL,    // sizeof
+    0,       // flag2
+    NULL,    // cmnt2
+    NULL,    // low8
+    NULL,    // high8
+    NULL,    // low16
+    NULL,    // high16
+    NULL,    // include
+    NULL,    // vstruc
+    NULL,    // rva
+    NULL,    // yword
 };
 
 asm_t *asms[]       = { &gas, NULL };
@@ -1213,12 +605,400 @@ static const bytes_t retcodes[] =
  { 0, NULL }
 };
 
+class hexagon_module : public processor_module {
+    public:
+    int ana_insn(insn_t &cmd)
+    {
+        hextracelog("ana(%08x)\n", cmd.ea);
+        if (cmd.ea & 3)
+            return 0;
 
+        H.disasm(cmd.ea);
+        if (H.text.find("<unknown>")!=H.text.npos)
+            return 0;
+
+        static ea_t prevea;           // what instruction did we previously process?
+        static int  packetflags;      // used to keep track of the current packet properties
+
+        // when not going through the code linearly reset the flags.
+        if (prevea+4!=cmd.ea) {
+            packetflags= 0;
+        }
+
+        cmd.size= H.insnsize;
+
+        uint32_t opcode= get_dword(cmd.ea);
+
+        // handle instruction packet boundaries
+        if (is_return(opcode)) {
+            packetflags |= CF_STOP;
+            if (is_packet_end(opcode))
+                cmd.itype= insn_stop;
+            else
+                cmd.itype= insn_other;
+        }
+        else if (is_immediate_call_insn(opcode)) {
+            cmd.itype= insn_call;
+        }
+        else if (is_relative_jump(opcode) || is_register_jump(opcode) || is_return(opcode)) {
+            packetflags |= CF_STOP;
+            if (is_packet_end(opcode))
+                cmd.itype= insn_stop;
+            else
+                cmd.itype= insn_other;
+        }
+        else {
+            if (is_packet_end(opcode)) {
+                if (packetflags&CF_STOP)
+                    cmd.itype= insn_stop;
+                else
+                    cmd.itype= insn_other;
+            }
+            else {
+                cmd.itype= insn_other;
+            }
+        }
+        dbgprintf("%08x -> type: %x: %s, flags=%x:  %s\n", cmd.ea, cmd.itype, Instructions[cmd.itype].name, packetflags, H.text.c_str());
+
+
+        // translate operands
+
+        op_t *op= cmd.ops;
+        op_t *opend = cmd.ops+6;
+
+        int ia= 0;
+        int im= 0;
+        for (std::string::iterator i= H.text.begin() ; i != H.text.end() ; ++i)
+        {
+            switch(*i) {
+                case '@':
+                    if (op==opend) {
+                        errprintf("too many operands: '%s'\n", H.text.c_str());
+                    }
+                    else if (ia<H.addrs.size()) {
+                        op->type= (cmd.itype || H.text.find("jump")!=H.text.npos) ? o_near : o_mem;
+                        op->addr= H.addrs[ia++];
+                        op->dtype  = dt_code;
+
+                        dbgprintf("ana->op%d : adr %08x, t=%d\n", op->n, op->addr, op->type);
+
+                        op++;
+                    }
+                    else {
+                        errprintf("too many addresses(%d>=%zd): '%s'\n", ia, H.addrs.size(), H.text.c_str());
+                    }
+                    break;
+                case '$':
+                    if (op==opend) {
+                        errprintf("too many operands: '%s'\n", H.text.c_str());
+                    }
+                    else if (im<H.imms.size()) {
+                        op->type= o_imm;
+                        op->value= H.imms[im++];
+                        op->dtype  = dt_dword;
+
+                        dbgprintf("ana->op%d : imm %08x\n", op->n, op->value);
+
+                        op++;
+                    }
+                    else {
+                        errprintf("too many immediates: '%s'\n", H.text.c_str());
+                    }
+
+                    break;
+            }
+        }
+
+        if (is_packet_end(opcode))
+            packetflags= 0;
+        prevea= cmd.ea;
+        return cmd.size;
+    }
+
+    int emu_insn(const insn_t& cmd)
+    {
+        hextracelog("emu(%08x), itype=%d\n", cmd.ea, cmd.itype);
+        uint32_t insn= get_dword(cmd.ea);
+
+        // note: insn_jump and insn_stop do not cause a cref fl_F
+        if (cmd.itype==insn_call || cmd.itype==insn_other) {
+            //printf("adding flow %08x -> +%d\n", cmd.ea, cmd.size);
+            cmd.add_cref(cmd.ea+cmd.size, 0, fl_F);
+        }
+
+        // attempt to convert Rx32.[hl] = #u16  instruction pairs to real offsets
+        // problem is that doing so causes ida to get stuck trying to 'emu'
+        // the current instruction
+        if (is_load_low(insn)) {
+            int i=4;
+            while (i<=16) {
+                uint32_t previnsn= get_dword(cmd.ea-i);
+                if (is_load_high(previnsn)) {
+                    if (get_load_regnum(insn)==get_load_regnum(previnsn)) {
+                        force_offset(cmd, 0, getloadhalfword(previnsn)<<16);
+                        break;
+                    }
+                }
+                uint32_t nextinsn= get_dword(cmd.ea+i);
+                if (is_load_high(nextinsn)) {
+                    if (get_load_regnum(insn)==get_load_regnum(nextinsn)) {
+                        force_offset(cmd, 0, getloadhalfword(nextinsn)<<16);
+                        break;
+                    }
+                }
+
+                i+=4;
+            }
+        }
+
+        for (int i=0 ; i<6 ; i++)
+        {
+            if (cmd.ops[i].type==o_near) {
+                dbgprintf("adding cref\n");
+
+                if (!is_immediate_call_insn(insn))
+                    cmd.add_cref(cmd.ops[i].addr, i, fl_JN);
+                else
+                    cmd.add_cref(cmd.ops[i].addr, i, fl_CN);
+            }
+            else if (cmd.ops[i].type==o_mem) {
+                dbgprintf("adding dref\n");
+                // todo: figure out if we are loading or storing.
+                cmd.add_dref(cmd.ops[i].addr, i, dr_R);
+            }
+            else if (cmd.ops[i].type==o_imm) {
+                if (!is_immext(insn)) {
+                    if (is_mapped(cmd.ops[i].value))
+                        force_offset(cmd, i, 0);
+                    if (is_off(get_flags(cmd.ea), i)) {
+                        dbgprintf("adding drefs\n");
+                        //cmd.add_dref(target, i, dr_O);
+                        cmd.add_off_drefs(cmd.ops[i], dr_O, 0/*outflags*/);
+                    }
+
+                }
+                else {
+                    op_num(cmd.ea, i);
+                }
+            }
+        }
+
+        // trace stack pointer -> add_auto_stkpnt2(get_func(cmd.ea), cmd.ea+cmd.size, delta);
+        // r29 = {add|sub}(r29, #)
+        //
+        // create stackvars:
+        //     ua_stkvar2(x, x.addr, 0) && op_stkvar(cmd.ea, x.n)
+        return 1;
+    }
+
+    void out_insn(outctx_t &ctx)
+    {
+        auto &cmd = ctx.insn;
+
+        //char buf[MAXSTR];
+        //init_output_buffer(buf, sizeof(buf));
+        hextracelog("out(%08x)\n", cmd.ea);
+
+        H.disasm(cmd.ea);
+
+        ctx.out_mnemonic();
+
+        std::string txt= H.text;
+        int io= 0;
+        for (std::string::iterator i= txt.begin() ; i != txt.end() ; ++i)
+        {
+            //dbgprintf("%p [ %p-%p ] : %02x\n", &*i, &*txt.begin(), &*txt.end(), *i);
+            switch(*i) {
+                case '$':
+                case '@':
+                    if (io==6) {
+                        errprintf("@%08x/%d: too many operands: '%s'\n", cmd.ea, int(i-txt.begin()), txt.c_str());
+                        return;
+                    }
+                    else {
+                        ctx.out_one_operand(io++);
+                    }
+                    break;
+                default:
+                    ctx.out_char(*i);
+            }
+        }
+        //term_output_buffer();
+
+        //dbgprintf("out:%s\n", buf);
+        //gl_comm = 1;                  // generate a user defined comment on this line
+        //MakeLine(buf, -1);
+        ctx.out_immchar_cmts();
+        ctx.flush_outbuf();
+    }
+
+    int out_operand(outctx_t &ctx, const op_t &op)
+    {
+        auto &cmd = ctx.insn;
+
+        //dbgprintf("op %d: d:%x/f:%x/t:%x, value=%x, addr=%x\n", op.n, op.dtype, op.flags, op.type, op.value, op.addr);
+        if (op.type==o_near || op.type==o_mem) {
+            qstring symbuf;
+            ssize_t n= get_name_expr(&symbuf, cmd.ea+op.offb, op.n, op.addr, op.addr);
+            if (n>0)
+                ctx.out_line(symbuf.c_str());
+            else
+                ctx.out_value(op, OOF_ADDR);
+            return 1;
+        }
+        else {
+            ctx.out_value(op, OOFW_IMM);
+            return 1;
+        }
+        return -1;
+        //ctx.gen_printf(-1, "op");
+    }
+    // ----- output functions
+    void out_header(outctx_t &ctx)
+    {
+        hextracelog("added header\n");
+        ctx.gen_cmt_line("Processor       : %s", inf.procName);
+        ctx.gen_cmt_line("Target assembler: %s", ash.name);
+        ctx.gen_cmt_line("Byte sex        : %s", inf.is_be() ? "Big endian" : "Little endian");
+        ctx.gen_cmt_line("");
+        ctx.gen_cmt_line("Hexagon processor module (c) 2017 GSMK");
+        ctx.gen_cmt_line("author: Willem Jan Hengeveld, itsme@gsmk.de");
+    //if ( ash.header != NULL )
+    //  for ( auto ptr=ash.header; *ptr != NULL; ptr++ )
+    //    ctx.gen_printf(0,COLSTR("%s",SCOLOR_ASMDIR),*ptr);
+    }
+    void out_footer(outctx_t &ctx)
+    {
+        hextracelog("added footer\n");
+        qstring name = get_colored_name(BADADDR, inf.start_ea);
+        ctx.gen_printf(-1,COLSTR("%s",SCOLOR_ASMDIR) " %s", ash.end, name.c_str());
+    }
+
+    void out_segstart(outctx_t &ctx, ea_t ea)
+    {
+        hextracelog("segment start(%08x)\n", ea);
+        ctx.gen_cmt_line("segstart");
+    }
+    void out_segend(outctx_t &ctx, ea_t ea)
+    {
+        hextracelog("segment end(%08x)\n", ea);
+        ctx.gen_cmt_line("segend");
+    }
+    int out_mnem(outctx_t &outctx)
+    { 
+        // the hexagon instruction consists only of operands.
+        return 1;
+    }
+
+    /*  code&0xFFFF0000 == 0xA09D0000  - allocframe
+     *       localsize = code&0x7FF
+     *
+     *  subinsn: code&0x1E00 == 0x1C00
+     *       localsize = (code>>4)&0x1F
+     *
+     *  locate __save_rX_through_rY   type functions:
+     *     memd (r30 + #0xFFFFFFD0) = r27:26
+     *
+
+     A  011uuuuuudddd   Rd = add(r29,#u6:2)              Add immediate to stack pointer
+    L2  1110uuuuudddd   Rd = memw(r29+#u5:2)             Load word from stack
+    L2  11110uuuuuddd   Rdd = memd(r29+#u5:3)            Load pair from stack
+    S2  0100uuuuutttt   memw(r29+#u5:2) = Rt             Store word to stack
+    S2  0101ssssssttt   memd(r29+#s6:3) = Rtt            Store pair to stack
+    S2  1110uuuuu----   allocframe(#u5:3)                Allocate stack frame
+
+    */
+    int create_func_frame(func_t &pfn)
+    {
+        return 0;
+    }
+    void newfile(const char *fname)
+    {
+        // extra linefeeds to increase visibility of this message
+        msg("\n\n");
+        msg("Hexagon/QDSP6 processor module v1.1 (C) 2017 GSMK, author: Willem Jan Hengeveld, itsme@gsmk.de\n");
+        msg("based on hexagon objdump from https://www.codeaurora.org/patches/quic/hexagon/4.0/Hexagon_Tools_source.tgz\n");
+        msg("\n");
+
+    }
+
+
+    virtual int is_sane_insn(const insn_t &cmd, int no_crefs)
+    {
+        hextracelog("is_sane_insn(%08x, %d)\n", cmd.ea, no_crefs);
+
+        // zero not an insn
+        if (get_dword(cmd.ea)==0)
+            return 0;
+
+        // no more than 4 nops considered normal
+        for (int i=0 ; i<4 ; i++)
+            if (get_dword(cmd.ea+4*i)!=0x7f004000)
+                return 1;
+        return 0;
+    }
+
+    virtual int is_jump_func(func_t &pfn, ea_t *jump_target, ea_t *func_pointer)
+    {
+        if (isjumpfunc(pfn.start_ea)) {
+            *jump_target= getjumpfunctarget(pfn.start_ea);
+            if (func_pointer)
+                *func_pointer= -1;
+            hextracelog("is_jump_func(%08x)-> yes: %08x\n", pfn.start_ea, *jump_target);
+            return 1;
+        }
+        else {
+            hextracelog("is_jump_func(%08x)-> no\n", pfn.start_ea);
+        }
+
+        return 0;
+    }
+
+    // only when PR_DELAYED is set in LPH.flags
+    virtual int is_basic_block_end(const insn_t &insn, bool call_insn_stops_block)
+    {
+        hextracelog("is_basic_block_end(%d)\n", call_insn_stops_block);
+        if (::is_basic_block_end(get_dword(insn.ea)))
+            return 1;
+
+        return 0;
+    }
+
+    virtual int is_call_insn(const insn_t &insn)
+    {
+        bool iscall= false;
+        if (is_immediate_call_insn(get_dword(insn.ea)))
+            iscall= true;
+        hextracelog("is_call_insn(%08x) -> %d\n", insn.ea, iscall);
+        if (iscall)
+            return 1;
+
+        return 0;
+    }
+    virtual int is_ret_insn(const insn_t &insn, bool strict)
+    {
+        hextracelog("is_ret_insn(%08x, %d)\n", insn.ea, strict);
+
+        uint32_t opcode= get_dword(insn.ea);
+        if (is_return(opcode))
+            return 1;
+
+        return 0;
+    }
+    virtual int creating_segm(segment_t &seg)
+    {
+        if (seg.type == SEG_CODE)
+            seg.align = saRelDble;
+        return 1;
+    }
+};
+
+hexagon_module  cpu;
 
 processor_t LPH =
 {
     IDP_INTERFACE_VERSION,// version
-    0x8666,               // id
+    0x8666,               // id,  above 0x8000: thirdparty module
 /*  flags used
 = PR_USE32           // supports 32-bit addressing?
 = PR_DEFSEG32        // segments are 32-bit by default
@@ -1237,71 +1017,32 @@ a PR_USE_ARG_TYPES   // use ph.use_arg_types callback
 a PR_CNDINSNS        // has conditional instructions
 */
 
-    PR_CNDINSNS|PR_NO_SEGMOVE|PR_USE32|PR_DEFSEG32|PRN_HEX,             // flags
-    8,                    // 8 bits in a byte for code segments
-    8,                    // 8 bits in a byte for other segments
+    PR_CNDINSNS|PR_NO_SEGMOVE|PR_USE32|PR_DEFSEG32|PRN_HEX|PR_ALIGN,             // flags
+    0,                                                                  // flags2
+    8,                    // int32 cnbits - 8 bits in a byte for code segments
+    8,                    // int32 dnbits - 8 bits in a byte for other segments
 
-    shnames,
-    lnames,
+    shnames,              // char **psnames -- names shorter than 9 chars.
+    lnames,               // char **plnames
 
-    asms,
+    asms,                 // asm_t **assemblers
 
-    notify,
+    &cpu.staticnotifyhook,        // hook_cb_t 
 
-    header,
-    footer,
+    RegNames,                     // Register names         char **reg_names;         
+    qnumber(RegNames),            // Number of registers    int32 regs_num;                       
 
-    segstart,
-    segend,
+    rVcs,                         // first       int32 reg_first_sreg;                 
+    rVds,                         // last        int32 reg_last_sreg;                  
+    1,                            // size of a segment register   int32 segreg_size;                    
+    rVcs,                         // int32 reg_code_sreg;                  
+    rVds,                         // int32 reg_data_sreg;                  
 
-    NULL,                 // assumes,
+    NULL,                         // No known code start sequences  const bytes_t *codestart;             
+    NULL,             // const bytes_t *retcodes;              
 
-    ana,
-    emu,
+    0,                            // int32 instruc_start;                  
+    qnumber(Instructions),        // int32 instruc_end;                    
+    Instructions,                 // const instruc_t *instruc;             
 
-    out,
-    outop,
-    intel_data,
-    NULL,                 // compare operands
-    NULL,                 // can have type
-
-    qnumber(RegNames),            // Number of registers
-    RegNames,                     // Register names
-    NULL,                         // get abstract register
-
-    0,                            // Number of register files
-    NULL,                         // Register file names
-    NULL,                         // Register descriptions
-    NULL,                         // Pointer to CPU registers
-
-    rVcs,                         // first
-    rVds,                         // last
-    1,                            // size of a segment register
-    rVcs,rVds,
-
-    NULL,                         // No known code start sequences
-/*    retcodes*/NULL,
-
-    0,qnumber(Instructions),
-    Instructions,
-/*
-    0,    //  int   (idaapi *is_far_jump)(int icode);
-    0,    //  ea_t (idaapi *translate)(ea_t base, adiff_t offset);
-    0,    //  size_t tbyte_size;
-    0,    //  int (idaapi *realcvt)(void *m, uint16 *e, uint16 swt);
-  {0},    //  char real_width[4];
-    0,    //  bool (idaapi *is_switch)(switch_info_ex_t *si);
-    0,    //  int32 (idaapi *gen_map_file)(FILE *fp);
-    0,    //  ea_t (idaapi *extract_address)(ea_t ea,const char *string,int x);
-    0,    //   int (idaapi *is_sp_based)(const op_t &x);
-    0,    //   bool (idaapi *create_func_frame)(func_t *pfn);
-    0,    //   int (idaapi *get_frame_retsize)(func_t *pfn);
-    0,    //   void (idaapi *gen_stkvar_def)(char *buf, size_t bufsize, const member_t *mptr, sval_t v);
-    0,    //   bool (idaapi *u_outspec)(ea_t ea,uchar segtype);
-    0,    //   int icode_return;
-    0,    //  set_options_t *set_idp_options;
-    0,    //  int (idaapi *is_align_insn)(ea_t ea);
-    0,    //  mvm_t *mvm;
-    0,    //  int high_fixup_bits;
-*/
 };

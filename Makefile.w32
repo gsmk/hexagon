@@ -2,27 +2,22 @@ include ../idacfg.mk
 
 all:
 
-#vc=c:/Program Files/Microsoft Visual Studio 8/VC
-#winsdk=$(vc)/platformsdk
-vc=c:/Program Files (x86)/Microsoft Visual Studio 14.0/VC
-winsdk=C:/Program Files (x86)/Windows Kits/10
-CXX=$(vc)/bin/cl.exe
-CC=$(vc)/bin/cl.exe
-LD=$(vc)/bin/link.exe
+CXX=cl.exe
+CC=cl.exe
+LD=link.exe
 
-TARGETS+=hexagon.w32
+TARGETS+=hexagon.dll
 
 # where the quicinc objdump source can be found
 gnutools= hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03
 
 gnutoolsincludes=-I $(gnutools)/include -I $(gnutools)/bfd -I $(gnutools)/include/opcode
 gnutoolsincludes+=-I build-win/opcodes -I build-win/bfd
-CFLAGS=-EHsc -GR -Gz -nologo -Zi -D__NT__ -D__IDP__ -I $(idasdk)/include -I $(BOOST)
-CFLAGS+=-I "$(vc)/include" -I "$(winsdk)/include" -D_WIN32 -DWIN32 -D_USRDLL -DMAXSTR=1024
-CFLAGS+=-O2
+CFLAGS=-EHsc -GR -Gz -nologo -Zi -D__NT__ -D__X64__ -D__IDP__ -I $(idasdk)/include 
+CFLAGS+=-D_WIN32 -DWIN32 -D_USRDLL -DMAXSTR=1024
+CFLAGS+=-O2 -std:c++17
 
-LDLIBS=$(idasdk)/lib/x86_win_vc_32/ida.lib
-LDLIBS+=-libpath:"$(vc)/lib" -libpath:"$(winsdk)/lib"
+LDLIBS=$(idasdk)/lib/x64_win_vc_32/ida.lib
 LDFLAGS=-debug -nologo -dll -export:LPH -stub:$(idasdk)/module/stub
 
 
@@ -31,17 +26,15 @@ LDFLAGS=-debug -nologo -dll -export:LPH -stub:$(idasdk)/module/stub
 
 all: $(TARGETS)
 
-hexagon.w32: hexagon.obj gt_safe-ctype.obj  gt_hexagon-dis.obj gt_hexagon-opc.obj bfd_funcs.obj gt_hexagon-isa.obj gt_cpu-hexagon.obj dummy-scan.obj
+hexagon.dll: hexagon.obj gt_safe-ctype.obj  gt_hexagon-dis.obj gt_hexagon-opc.obj bfd_funcs.obj gt_hexagon-isa.obj gt_cpu-hexagon.obj dummy-scan.obj
 cflags_hexagon= $(gnutoolsincludes)
 cflags_bfd_funcs= $(gnutoolsincludes)
 
-install:  hexagon.w32
+install:  hexagon.dll
 	cp $^  "$(idabin)/procs"
 
 clean:
 	$(RM) $(TARGETS) $(wildcard *.obj) $(GENERATEDFILES)  hexagon.exp hexagon.ilk hexagon.lib hexagon.pdb vc140.pdb
-
-
 
 
 %.obj: %.cpp
@@ -61,6 +54,6 @@ gt_%.obj: $(gnutools)/bfd/%.c
 %.obj: %.s
 	"$(CXX)" -c -Fo$@ $^
 
-%.w32: %.obj
+%.dll: %.obj
 	"$(LD)" $(LDFLAGS) -out:$@ $^  $(LDLIBS)
 
