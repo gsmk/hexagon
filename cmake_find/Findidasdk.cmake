@@ -1,0 +1,27 @@
+find_path(IDASDK_PATH NAMES include/netnode.hpp PATHS $ENV{IDASDK} $ENV{HOME}/src/idasdk771)
+if (IDASDK_PATH STREQUAL "IDASDK_PATH-NOTFOUND")
+    message(FATAL_ERROR "IDASDK not found.")
+endif()
+
+add_library(idasdk INTERFACE)
+target_include_directories(idasdk INTERFACE ${IDASDK_PATH}/include)
+target_compile_definitions(idasdk INTERFACE MAXSTR=1024)
+if (LINUX)
+    target_compile_definitions(idasdk INTERFACE __LINUX__=1)
+    target_link_libraries(idasdk INTERFACE ${IDASDK_PATH}/lib/x64_linux_gcc_64/libida64.so)
+elseif (DARWIN)
+    target_compile_definitions(idasdk INTERFACE __MAC__=1)
+    target_link_libraries(idasdk INTERFACE ${IDASDK_PATH}/lib/x64_mac_clang_64/libida64.dylib)
+elseif (WIN32)
+    target_compile_definitions(idasdk INTERFACE __NT__=1)
+    target_link_libraries(idasdk INTERFACE ${IDASDK_PATH}/lib/x64_win_vc_64/ida.lib)
+endif()
+# this prevents idasdk:fpro.h to redefine all stdio stuff to 'dont_use_XXX'
+target_compile_definitions(idasdk INTERFACE USE_STANDARD_FILE_FUNCTIONS)
+# this prevents idasdk:pro.h to redefine all string functions to 'dont_use_XXX'
+target_compile_definitions(idasdk INTERFACE USE_DANGEROUS_FUNCTIONS)
+# disallow obsolete sdk functions.
+target_compile_definitions(idasdk INTERFACE NO_OBSOLETE_FUNCS)
+if (WIN32)
+    target_link_options(idasdk INTERFACE -export:LPH)
+endif()
