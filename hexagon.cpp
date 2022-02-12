@@ -21,7 +21,11 @@
 #include "logging.h"
 #include "pmbase.h"
 
-#if IDA_SDK_VERSION == 700
+#ifdef TRACELOG
+FILE *g_log = NULL;
+#endif
+
+#if IDA_SDK_VERSION >= 700
 #ifdef IDA70BETA3
 #define get_many_bytes(ea, buf, size) get_bytes(ea, buf, size)
 #else
@@ -607,7 +611,7 @@ static const bytes_t retcodes[] =
 
 class hexagon_module : public processor_module {
     public:
-    int ana_insn(insn_t &cmd)
+    int ana_insn(insn_t &cmd) override
     {
         hextracelog("ana(%08x)\n", cmd.ea);
         if (cmd.ea & 3)
@@ -715,7 +719,7 @@ class hexagon_module : public processor_module {
         return cmd.size;
     }
 
-    int emu_insn(const insn_t& cmd)
+    int emu_insn(const insn_t& cmd) override
     {
         hextracelog("emu(%08x), itype=%d\n", cmd.ea, cmd.itype);
         uint32_t insn= get_dword(cmd.ea);
@@ -791,7 +795,7 @@ class hexagon_module : public processor_module {
         return 1;
     }
 
-    void out_insn(outctx_t &ctx)
+    void out_insn(outctx_t &ctx) override
     {
         auto &cmd = ctx.insn;
 
@@ -832,7 +836,7 @@ class hexagon_module : public processor_module {
         ctx.flush_outbuf();
     }
 
-    int out_operand(outctx_t &ctx, const op_t &op)
+    int out_operand(outctx_t &ctx, const op_t &op) override
     {
         auto &cmd = ctx.insn;
 
@@ -854,12 +858,12 @@ class hexagon_module : public processor_module {
         //ctx.gen_printf(-1, "op");
     }
     // ----- output functions
-    void out_header(outctx_t &ctx)
+    void out_header(outctx_t &ctx) override
     {
         hextracelog("added header\n");
         ctx.gen_cmt_line("Processor       : %s", inf.procName);
         ctx.gen_cmt_line("Target assembler: %s", ash.name);
-        ctx.gen_cmt_line("Byte sex        : %s", inf.is_be() ? "Big endian" : "Little endian");
+        ctx.gen_cmt_line("Byte sex        : %s", inf_is_be() ? "Big endian" : "Little endian");
         ctx.gen_cmt_line("");
         ctx.gen_cmt_line("Hexagon processor module (c) 2017 GSMK");
         ctx.gen_cmt_line("author: Willem Jan Hengeveld, itsme@gsmk.de");
@@ -867,24 +871,26 @@ class hexagon_module : public processor_module {
     //  for ( auto ptr=ash.header; *ptr != NULL; ptr++ )
     //    ctx.gen_printf(0,COLSTR("%s",SCOLOR_ASMDIR),*ptr);
     }
-    void out_footer(outctx_t &ctx)
+    void out_footer(outctx_t &ctx) override
     {
         hextracelog("added footer\n");
         qstring name = get_colored_name(BADADDR, inf.start_ea);
         ctx.gen_printf(-1,COLSTR("%s",SCOLOR_ASMDIR) " %s", ash.end, name.c_str());
     }
 
-    void out_segstart(outctx_t &ctx, ea_t ea)
+    int out_segstart(outctx_t &ctx, segment_t &seg) override
     {
-        hextracelog("segment start(%08x)\n", ea);
+        hextracelog("segment start(%08x)\n", seg.start_ea);
         ctx.gen_cmt_line("segstart");
+        return 0;
     }
-    void out_segend(outctx_t &ctx, ea_t ea)
+    int out_segend(outctx_t &ctx, segment_t &seg) override
     {
-        hextracelog("segment end(%08x)\n", ea);
+        hextracelog("segment end(%08x)\n", seg.start_ea);
         ctx.gen_cmt_line("segend");
+        return 0;
     }
-    int out_mnem(outctx_t &outctx)
+    int out_mnem(outctx_t &outctx) override
     { 
         // the hexagon instruction consists only of operands.
         return 1;
@@ -908,11 +914,11 @@ class hexagon_module : public processor_module {
     S2  1110uuuuu----   allocframe(#u5:3)                Allocate stack frame
 
     */
-    int create_func_frame(func_t &pfn)
+    int create_func_frame(func_t &pfn) override
     {
         return 0;
     }
-    void newfile(const char *fname)
+    void newfile(const char *fname) override
     {
         // extra linefeeds to increase visibility of this message
         msg("\n\n");
@@ -923,7 +929,7 @@ class hexagon_module : public processor_module {
     }
 
 
-    virtual int is_sane_insn(const insn_t &cmd, int no_crefs)
+    virtual int is_sane_insn(const insn_t &cmd, int no_crefs) override
     {
         hextracelog("is_sane_insn(%08x, %d)\n", cmd.ea, no_crefs);
 
@@ -938,7 +944,7 @@ class hexagon_module : public processor_module {
         return 0;
     }
 
-    virtual int is_jump_func(func_t &pfn, ea_t *jump_target, ea_t *func_pointer)
+    virtual int is_jump_func(func_t &pfn, ea_t *jump_target, ea_t *func_pointer) override
     {
         if (isjumpfunc(pfn.start_ea)) {
             *jump_target= getjumpfunctarget(pfn.start_ea);
@@ -955,7 +961,7 @@ class hexagon_module : public processor_module {
     }
 
     // only when PR_DELAYED is set in LPH.flags
-    virtual int is_basic_block_end(const insn_t &insn, bool call_insn_stops_block)
+    virtual int is_basic_block_end(const insn_t &insn, bool call_insn_stops_block) override
     {
         hextracelog("is_basic_block_end(%d)\n", call_insn_stops_block);
         if (::is_basic_block_end(get_dword(insn.ea)))
@@ -964,7 +970,7 @@ class hexagon_module : public processor_module {
         return 0;
     }
 
-    virtual int is_call_insn(const insn_t &insn)
+    virtual int is_call_insn(const insn_t &insn) override
     {
         bool iscall= false;
         if (is_immediate_call_insn(get_dword(insn.ea)))
@@ -975,7 +981,7 @@ class hexagon_module : public processor_module {
 
         return 0;
     }
-    virtual int is_ret_insn(const insn_t &insn, bool strict)
+    virtual int is_ret_insn(const insn_t &insn, bool strict) override
     {
         hextracelog("is_ret_insn(%08x, %d)\n", insn.ea, strict);
 
@@ -985,7 +991,7 @@ class hexagon_module : public processor_module {
 
         return 0;
     }
-    virtual int creating_segm(segment_t &seg)
+    virtual int creating_segm(segment_t &seg) override
     {
         if (seg.type == SEG_CODE)
             seg.align = saRelDble;
@@ -993,12 +999,23 @@ class hexagon_module : public processor_module {
     }
 };
 
-hexagon_module  cpu;
+static ssize_t idaapi staticnotifyhook(void *user_data, int notification_code, va_list va)
+{
+    if ( notification_code == processor_t::ev_get_procmod )
+    {
+#ifdef TRACELOG
+        g_log= qfopen("hexagon.log", "a+");
+#endif
+        return size_t(new hexagon_module);
+    }
+
+    return 0;
+}
 
 processor_t LPH =
 {
-    IDP_INTERFACE_VERSION,// version
-    0x8666,               // id,  above 0x8000: thirdparty module
+    .version=IDP_INTERFACE_VERSION,// version
+    .id=0x8666,               // id,  above 0x8000: thirdparty module
 /*  flags used
 = PR_USE32           // supports 32-bit addressing?
 = PR_DEFSEG32        // segments are 32-bit by default
@@ -1017,32 +1034,36 @@ a PR_USE_ARG_TYPES   // use ph.use_arg_types callback
 a PR_CNDINSNS        // has conditional instructions
 */
 
-    PR_CNDINSNS|PR_NO_SEGMOVE|PR_USE32|PR_DEFSEG32|PRN_HEX|PR_ALIGN,             // flags
-    0,                                                                  // flags2
-    8,                    // int32 cnbits - 8 bits in a byte for code segments
-    8,                    // int32 dnbits - 8 bits in a byte for other segments
+    .flag=PR_CNDINSNS|PR_NO_SEGMOVE|PR_USE32|PR_DEFSEG32|PRN_HEX|PR_ALIGN,             // flags
+    .flag2=0,                                                                  // flags2
+    .cnbits=8,                    // int32 cnbits - 8 bits in a byte for code segments
+    .dnbits=8,                    // int32 dnbits - 8 bits in a byte for other segments
 
-    shnames,              // char **psnames -- names shorter than 9 chars.
-    lnames,               // char **plnames
+    .psnames=shnames,              // char **psnames -- names shorter than 9 chars.
+    .plnames=lnames,               // char **plnames
 
-    asms,                 // asm_t **assemblers
+    .assemblers=asms,                 // asm_t **assemblers
 
-    &cpu.staticnotifyhook,        // hook_cb_t 
+    ._notify=&staticnotifyhook,        // hook_cb_t 
 
-    RegNames,                     // Register names         char **reg_names;         
-    qnumber(RegNames),            // Number of registers    int32 regs_num;                       
+    .reg_names=RegNames,                     // Register names         char **reg_names;         
+    .regs_num=qnumber(RegNames),            // Number of registers    int32 regs_num;                       
 
-    rVcs,                         // first       int32 reg_first_sreg;                 
-    rVds,                         // last        int32 reg_last_sreg;                  
-    1,                            // size of a segment register   int32 segreg_size;                    
-    rVcs,                         // int32 reg_code_sreg;                  
-    rVds,                         // int32 reg_data_sreg;                  
+    .reg_first_sreg=rVcs,                         // first       int32 reg_first_sreg;                 
+    .reg_last_sreg=rVds,                         // last        int32 reg_last_sreg;                  
+    .segreg_size=1,                            // size of a segment register   int32 segreg_size;                    
+    .reg_code_sreg=rVcs,                         // int32 reg_code_sreg;                  
+    .reg_data_sreg=rVds,                         // int32 reg_data_sreg;                  
 
-    NULL,                         // No known code start sequences  const bytes_t *codestart;             
-    NULL,             // const bytes_t *retcodes;              
+    .codestart=NULL,                         // No known code start sequences  const bytes_t *codestart;             
+    .retcodes=NULL,             // const bytes_t *retcodes;              
 
-    0,                            // int32 instruc_start;                  
-    qnumber(Instructions),        // int32 instruc_end;                    
-    Instructions,                 // const instruc_t *instruc;             
+    .instruc_start=0,                            // int32 instruc_start;                  
+    .instruc_end=qnumber(Instructions),        // int32 instruc_end;                    
+    .instruc=Instructions,                 // const instruc_t *instruc;             
 
+    .tbyte_size= sizeof(long double),
+    .real_width= { 2, 4, 8, 16 },
+    .icode_return=0,
+    .unused_slot=NULL,
 };

@@ -20,123 +20,6 @@
 //    * in LPH for the notifyhook use: &cpu.staticnotifyhook,
 
 std::map<int,const char*> eventnames = {
-#ifdef IDA70BETA3
-    {0, "init"},
-    {1, "term"},
-    {2, "newprc"},
-    {3, "newasm"},
-    {4, "newfile"},
-    {5, "oldfile"},
-    {6, "newbinary"},
-    {7, "endbinary"},
-    {8, "set_idp_options"},
-    {9, "set_proc_options"},
-    {10, "ana_insn"},
-    {11, "emu_insn"},
-    {12, "out_header"},
-    {13, "out_footer"},
-    {14, "out_segstart"},
-    {15, "out_segend"},
-    {16, "out_assumes"},
-    {17, "out_insn"},
-    {18, "out_mnem"},
-    {19, "out_operand"},
-    {20, "out_data"},
-    {21, "out_label"},
-    {22, "out_special_item"},
-    {23, "gen_stkvar_def"},
-    {24, "gen_regvar_def"},
-    {25, "gen_src_file_lnnum"},
-    {26, "creating_segm"},
-    {27, "moving_segm"},
-    {28, "coagulate"},
-    {29, "undefine"},
-    {30, "treat_hindering_item"},
-    {31, "rename"},
-    {32, "is_far_jump"},
-    {33, "is_sane_insn"},
-    {34, "is_cond_insn"},
-    {35, "is_call_insn"},
-    {36, "is_ret_insn"},
-    {37, "may_be_func"},
-    {38, "is_basic_block_end"},
-    {39, "is_indirect_jump"},
-    {40, "is_insn_table_jump"},
-    {41, "is_switch"},
-    {42, "calc_switch_cases"},
-    {43, "create_switch_xrefs"},
-    {44, "is_align_insn"},
-    {45, "is_alloca_probe"},
-    {46, "delay_slot_insn"},
-    {47, "is_sp_based"},
-    {48, "can_have_type"},
-    {49, "cmp_opnd"},         // renamed to cmp_operands in beta4
-    {50, "adjust_refinfo"},
-    {51, "get_operand_string"},
-    {52, "get_reg_name"},
-    {53, "str2reg"},
-    {54, "get_autocmt"},
-    {55, "get_bg_color"},
-    {56, "is_jump_func"},
-    {57, "func_bounds"},
-    {58, "verify_sp"},
-    {59, "verify_noreturn"},
-    {60, "create_func_frame"},
-    {61, "get_frame_retsize"},
-    {62, "get_stkvar_scale_factor"},
-    //  demangle_name  was inserted here in beta4
-    {63, "add_cref"},
-    {64, "add_dref"},
-    {65, "del_cref"},
-    {66, "del_dref"},
-    {67, "coagulate_dref"},
-    {68, "may_show_sreg"},
-    {69, "loader_elf_machine"},
-    {70, "auto_queue_empty"},
-    {71, "validate_flirt_func"},
-    {72, "adjust_libfunc_ea"},
-    {73, "assemble"},
-    {74, "extract_address"},
-    {75, "realcvt"},
-    {76, "gen_asm_or_lst"},
-    {77, "gen_map_file"},
-    {78, "create_flat_group"},
-    {79, "getreg"},
-    {80, "last_cb_before_debugger"},
-    {1000, "next_exec_insn"},
-    {1001, "calc_step_over"},
-    {1002, "calc_next_eas"},
-    {1003, "get_macro_insn_head"},
-    {1004, "get_dbr_opnum"},
-    {1005, "insn_reads_tbit"},
-    {1006, "clean_tbit"},
-    {1007, "get_operand_info"},  // renamed to get_idd_opinfo in beta4
-    {1008, "get_reg_info"},
-    {1009, "last_cb_before_type_callbacks"},
-    {2000, "setup_til"},
-    {2001, "get_abi_info"},
-    {2002, "max_ptr_size"},
-    {2003, "get_default_enum_size"},
-    {2004, "get_cc_regs"},
-    {2005, "get_stkarg_offset"},
-    {2006, "shadow_args_size"},
-    {2007, "get_simd_types"},
-    {2008, "calc_cdecl_purged_bytes"},
-    {2009, "calc_purged_bytes"},
-    {2010, "calc_retloc"},
-    {2011, "calc_arglocs"},
-    {2012, "calc_varglocs"},
-    {2013, "adjust_argloc"},
-    {2014, "lower_func_type"},
-    {2015, "equal_reglocs"},
-    {2016, "use_stkarg_type"},
-    {2017, "use_regarg_type"},
-    {2018, "use_arg_types"},
-    {2019, "arg_addrs_ready"},
-    {2020, "decorate_name"},
-    {3000, "loader"},
-#else
-    // from beta4
     {0, "init"},
     {1, "term"},
     {2, "newprc"},
@@ -218,7 +101,24 @@ std::map<int,const char*> eventnames = {
     {78, "gen_map_file"},
     {79, "create_flat_group"},
     {80, "getreg"},
-    {81, "last_cb_before_debugger"},
+    {81, "analyze_prolog"},
+    {82, "calc_spdelta"},
+    {83, "calcrel"},
+    {84, "find_reg_value"},
+    {85, "find_op_value"},
+    {86, "replaying_undo"},
+    {87, "ending_undo"},
+    {88, "set_code16_mode"},
+    {89, "get_code16_mode"},
+    {90, "get_procmod"},
+    {91, "asm_installed"},
+    {92, "get_reg_accesses"},
+    {93, "is_control_flow_guard"},
+    {94, "broadcast"},
+    {95, "create_merge_handlers"},
+    {96, "privrange_changed"},
+    {97, "last_cb_before_debugger"},
+
     {1000, "next_exec_insn"},
     {1001, "calc_step_over"},
     {1002, "calc_next_eas"},
@@ -228,14 +128,16 @@ std::map<int,const char*> eventnames = {
     {1006, "clean_tbit"},
     {1007, "get_idd_opinfo"},
     {1008, "get_reg_info"},
-    {1009, "last_cb_before_type_callbacks"},
+    {1009, "update_call_stack"},
+    {1010, "last_cb_before_type_callbacks"},
+
     {2000, "setup_til"},
     {2001, "get_abi_info"},
     {2002, "max_ptr_size"},
     {2003, "get_default_enum_size"},
     {2004, "get_cc_regs"},
-    {2005, "get_stkarg_offset"},
-    {2006, "shadow_args_size"},
+    {2005, "obsolete1"},
+    {2006, "obsolete2"},
     {2007, "get_simd_types"},
     {2008, "calc_cdecl_purged_bytes"},
     {2009, "calc_purged_bytes"},
@@ -250,8 +152,12 @@ std::map<int,const char*> eventnames = {
     {2018, "use_arg_types"},
     {2019, "arg_addrs_ready"},
     {2020, "decorate_name"},
+    {2021, "arch_changed"},
+    {2022, "get_stkarg_area_info"},
+    {2023, "last_cb_before_loader"},
+
     {3000, "loader"},
-#endif
+
 };
 const char*eventname(int id)
 {
@@ -263,7 +169,7 @@ const char*eventname(int id)
 
 struct leavenotify {
     // help in logging the entry/exit of this function with stack level.
-    inline static int _level = 0;
+    inline static int _level;
     int notification_code;
     ssize_t &rc;
     leavenotify(int notification_code, ssize_t &rc)
@@ -277,6 +183,7 @@ struct leavenotify {
         hextracelog("%*sLEAVE hexagon:notify msgid=%2d:%s - rc=%d\n", _level*3, "", notification_code, eventname(notification_code), (int)rc);
     }
 };
+
 /*
  *  argument types:
  *    - using const (ref|ptr) when the object pointed to shall not be modified
@@ -288,32 +195,10 @@ struct leavenotify {
  *
  */
 
-class processor_module {
-    inline static processor_module *theInstance;
+class processor_module : public procmod_t {
 public:    
-    processor_module()
-    {
-        theInstance = this;
-    }
-    static ssize_t idaapi staticnotifyhook(void *user_data, int notification_code, va_list va)
-    {
-#ifdef TRACELOG
-        if (!g_log) g_log= qfopen("hexagon.log", "a+");
-#endif
 
-        if (!user_data) {
-            // initially, from the LPH processor_t struct, there is no 'userdata'
-            // we set it here, and call ourselves anyway.
-            user_data = static_cast<void*>(theInstance);
-            int unhooked = unhook_from_notification_point(HT_IDP, staticnotifyhook);
-            bool rc = hook_to_notification_point(HT_IDP, staticnotifyhook, user_data);
-
-            hextracelog("HOOKING: unhooked %d, hooking -> %d\n", unhooked, rc);
-        }
-        return static_cast<processor_module*>(user_data)->notifyhook(notification_code, va);
-    }
-
-    ssize_t notifyhook(int notification_code, va_list va)
+    virtual ssize_t idaapi on_event(ssize_t notification_code, va_list va) override
     {
         ssize_t rc = 0;
 
@@ -1839,7 +1724,7 @@ public:
                 rc = get_cc_regs(*regs, cc);
             }
             break;
-
+#if IDA_SDK_VERSION <= 760
             case processor_t::ev_get_stkarg_offset:
             {
                 ///< Get offset from SP to the first stack argument.
@@ -1866,7 +1751,7 @@ public:
                 rc = shadow_args_size(shadow_args_siz, pfn);
             }
             break;
-
+#endif
             case processor_t::ev_get_simd_types:
             {
                 ///< Get SIMD-related types according to given attributes ant/or argument location
