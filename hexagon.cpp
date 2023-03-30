@@ -682,7 +682,7 @@ class hexagon_module : public processor_module {
                     else if (ia<H.addrs.size()) {
                         op->type= (cmd.itype || H.text.find("jump")!=H.text.npos) ? o_near : o_mem;
                         op->addr= H.addrs[ia++];
-                        op->dtype  = dt_code;
+                        op->dtype  = dt_dword;
 
                         dbgprintf("ana->op%d : adr %08x, t=%d\n", op->n, op->addr, op->type);
 
@@ -816,7 +816,7 @@ class hexagon_module : public processor_module {
                 case '$':
                 case '@':
                     if (io==6) {
-                        errprintf("@%08x/%d: too many operands: '%s'\n", cmd.ea, int(i-txt.begin()), txt.c_str());
+                        errprintf("@%08x/%d: too many operands: '%s'\n", (uint32_t)cmd.ea, int(i-txt.begin()), txt.c_str());
                         return;
                     }
                     else {
