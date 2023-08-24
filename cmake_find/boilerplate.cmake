@@ -160,7 +160,7 @@ if(MSVC)
     # NOBITMAP - avoid error in mmreg.h
     # NOMINMAX - remove 'max()' macro from global namespace
     # NOGDI - ...
-    add_definitions(-DNOMINMAX -DNOGDI -DNOBITMAP)
+    add_definitions(-DNOMINMAX -DNOGDI -DNOBITMAP -DWIN32_LEAN_AND_MEAN)
     add_definitions(-DWIN32)
     add_definitions(-D__STDC_WANT_SECURE_LIB__=1)
 

@@ -1,25 +1,33 @@
-# note: this depends on my local install
 if (TARGET idasdk)
     return()
 endif()
-find_path(IDASDK_PATH NAMES include/netnode.hpp PATHS $ENV{IDASDK} $ENV{HOME}/src/idasdk_pro82 c:/local/idasdk82)
+# note: this depends partially on my local install
+find_path(IDASDK_PATH NAMES include/netnode.hpp PATHS
+    $ENV{IDASDK}
+    $ENV{HOME}/src/idasdk_pro82
+    $ENV{HOME}/src/idasdk_pro80
+    c:/local/idasdk_pro82
+    c:/local/idasdk77)
 if (IDASDK_PATH STREQUAL "IDASDK_PATH-NOTFOUND")
-    message(FATAL_ERROR "IDASDK not found.")
+    message(FATAL_ERROR "IDASDK not found on ${CMAKE_SYSTEM_NAME}.")
 endif()
 if(WIN32)
     # note that for windows both libs have the same name.
     find_library(IDALIB32 ida ${IDASDK_PATH}/lib/x64_win_vc_32 ${IDASDK_PATH}/lib/x64_win_vc_32_pro)
     find_library(IDALIB64 ida ${IDASDK_PATH}/lib/x64_win_vc_64 ${IDASDK_PATH}/lib/x64_win_vc_64_pro)
 elseif(LINUX)
-    find_library(IDALIB32 ida ${IDASDK_PATH}/lib/x64_linux_gcc_32 ${IDASDK_PATH}/lib/x64_linux_gcc_32_pro)
+    find_library(IDALIB32 ida   ${IDASDK_PATH}/lib/x64_linux_gcc_32 ${IDASDK_PATH}/lib/x64_linux_gcc_32_pro)
     find_library(IDALIB64 ida64 ${IDASDK_PATH}/lib/x64_linux_gcc_64 ${IDASDK_PATH}/lib/x64_linux_gcc_64_pro)
 elseif(DARWIN)
-    find_library(IDALIB32 ida ${IDASDK_PATH}/lib/x64_mac_clang_32 ${IDASDK_PATH}/lib/x64_mac_clang_32_pro)
-    find_library(IDALIB64 ida64 ${IDASDK_PATH}/lib/x64_mac_clang_64 ${IDASDK_PATH}/lib/x64_mac_clang_64_pro)
-elseif(MACARM)
-    # todo ... how do I detect this from my cmake script?
-    find_library(IDALIB32 ida ${IDASDK_PATH}/lib/arm64_mac_clang_32 ${IDASDK_PATH}/lib/arm64_mac_clang_32_pro)
-    find_library(IDALIB64 ida64 ${IDASDK_PATH}/lib/arm64_mac_clang_64 ${IDASDK_PATH}/lib/arm64_mac_clang_64_pro)
+    # now this depends on the host, better would be to set
+    # CMAKE_OSX_ARCHITECTURES to arm64 for the arm build.
+    if (CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL x86_64)
+        find_library(IDALIB32 ida   ${IDASDK_PATH}/lib/x64_mac_clang_32 ${IDASDK_PATH}/lib/x64_mac_clang_32_pro)
+        find_library(IDALIB64 ida64 ${IDASDK_PATH}/lib/x64_mac_clang_64 ${IDASDK_PATH}/lib/x64_mac_clang_64_pro)
+    else()
+        find_library(IDALIB32 ida   ${IDASDK_PATH}/lib/arm64_mac_clang_32 ${IDASDK_PATH}/lib/arm64_mac_clang_32_pro)
+        find_library(IDALIB64 ida64 ${IDASDK_PATH}/lib/arm64_mac_clang_64 ${IDASDK_PATH}/lib/arm64_mac_clang_64_pro)
+    endif()
 endif()
 if (IDALIB64 STREQUAL "IDALIB64-NOTFOUND")
     message(FATAL_ERROR "could not find libida64")
