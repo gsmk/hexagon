@@ -1,9 +1,11 @@
 find_path(GNUTOOLS_PATH NAMES opcodes/hexagon-dis.c PATHS ${CMAKE_SOURCE_DIR}/hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03)
 if (GNUTOOLS_PATH STREQUAL GNUTOOLS_PATH-NOTFOUND)
     include(FetchContent)
+    # fetching a stripped down version of the gnutoolchain, so we don't need to download a 140M archive.
+    # the original url: https://sourcery.sw.siemens.com/GNUToolchain/package14127/public/hexagon/sourceryg++-2012.03-151-hexagon.src.tar.bz2
     FetchContent_Populate(gnutools
-        URL https://itsme.home.xs4all.nl/hx-2012.03.tar.gz
-        URL_HASH SHA256=7d2969c52f4d75d659a5b74b41c1b53f33ac83dd4b5c8e4620ed591e91ef05cb
+        URL https://itsme.home.xs4all.nl/hx-2012.03-v2.tar.gz
+        URL_HASH SHA256=deef10e66e7dcb16361043c7328d0e74b08b0fbe5cbd28fd7ac6f5966e8a12b9  
     )
     set(GNUTOOLS_PATH ${gnutools_SOURCE_DIR}/binutils-hexagon-2012.03)
 else()
