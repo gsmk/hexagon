@@ -41,3 +41,6 @@ clean:
 install:
 	cp -a build/hexagon.so "$(idabin)/procs"
 	cp -a build/hexagon64.so "$(idabin)/procs"
+
+source-archive:
+	git archive --format=zip -o source-archive.zip master
