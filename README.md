@@ -77,7 +77,9 @@ The top level `Makefile` can call cmake in several ways.
 
 
 You need the [IDASDK](https://www.hex-rays.com/products/ida/support/ida/idasdk77.zip) ( Password protected ).
-The sourcery hexagon gnutools, install them in a subdirectory named `hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03`.
+
+The gnutools are automatically downloaded.
+
 You need a c++20 compiler, like visualstudio 2019, or any recent gcc or clang.
 
 You can point cmake to the right SDK by setting the environment variable `IDASDK` to the basepath of the sdk.
@@ -85,6 +87,17 @@ You can point cmake to the right SDK by setting the environment variable `IDASDK
 On windows, first run the following command, to setup the right visualstudio environment.
 
     vsdevcmd -arch=amd64
+
+
+The sourcery gnutools
+=====================
+
+A stripped down version of the sourcery hexagon gnutools is downloaded from [my xs4all page](https://itsme.home.xs4all.nl/hx-2012.03-v2.tar.gz). This version does include some patches to silence some compiler warnings, and work around a problem in the original code where occasionally the disassembler would crash.
+The original archive is quite large ( 140M ) and can be found [here](https://sourcery.sw.siemens.com/GNUToolchain/package14127/public/hexagon/sourceryg++-2012.03-151-hexagon.src.tar.bz2). 
+The GPL/LGPL license files are included in the tar file.
+
+Preconfigured bfd.h and config.h files are included in this source archive.
+
 
 Bugs
 -------
@@ -125,13 +138,32 @@ Willem Hengeveld (itsme@gsmk.de)
 History
 -------
 2013-06-10 version 1.0
-2016-02-01 version 1.1
-2017-12-05 version 1.2 - for idapro v7
-2022-02-12 version 1.3 - for IDA v7.7
+ * initial public release
 
- * fixed incorrect code ref from `memw` instruction
- * fixed incorrect label for some `jump` instructions
- * now using changed plugin architecture for IDA7.
+2016-02-01 version 1.1
+ * hexagon: now supporting v5 insn set. some improved insn matching code
+ * updated to latest sourcery binutils release.
+
+2017-12-05 version 1.2 - for idapro v7
+ * completely reorganised plugin structure, support idav7 plugin structure.
+ * hexagon: fixed addcref bug - now keeping stack of cmd vars. 
+ * fixed problem with code refs from memw[...] instructions. 
+ * fixed garbage label for invalid jump addresses
+ * fixed incorrect code ref from memw()
+ * corrected parsing of ##@ vs ##num
+
+2022-02-12 version 1.3 - for IDA v7.7
+ * updated to support ida v7.7
+ * switch to cmake for build system.
+
+2023-03-30 version 1.4
+ * fixed 'interr 1112' in ida 8+
+ * improved cmake wrapper for idasdk
+ * automatic download of gnutools
+
+2023-10-03 version 1.5
+ * fixed windows build
+
 
 License
 -------
