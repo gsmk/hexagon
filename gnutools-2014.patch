@@ -1,0 +1,146 @@
+diff -duwr xhx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/bfd/hexagon-isa.c hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/bfd/hexagon-isa.c
+--- xhx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/bfd/hexagon-isa.c	2015-09-22 18:42:23.000000000 +0200
++++ hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/bfd/hexagon-isa.c	2017-03-08 20:16:07.000000000 +0100
+@@ -1371,6 +1371,72 @@
+ 	 || hexagon_if_arch_v55 ();
+ }
+ 
++//// >>>> itsme
++static int is_valid_ptr(const void *p)
++{
++	// pass it to a syscall - https://stackoverflow.com/questions/551069/testing-pointers-for-validity-c-c
++	access(p, 0);
++	return errno!=EFAULT;
++}
++static int is_valid_ptr_or_null(const void *p)
++{
++    return p==NULL || is_valid_ptr(p);
++}
++static int is_valid_opcode(const hexagon_opcode *p)
++{
++    return is_valid_ptr(p->syntax) 
++        && is_valid_ptr(p->enc) 
++        && is_valid_ptr_or_null(p->next_asm) 
++        && is_valid_ptr_or_null(p->next_dis) 
++        && (p->slots < 16)
++        && (p->implicit < 0x1000)
++        && (p->attributes < 0x02000000)
++        && is_valid_ptr_or_null(p->map);
++}
++static int check_icode_map(int all)
++{
++    FILE *flog;
++    if (all) {
++        flog = fopen("icodecheck.log", "a+");
++    }
++    for (int icode = 0 ; icode< (1 << hexagon_icode_hash_bits) ; icode++)
++    {
++        const hexagon_opcode *prev = NULL;
++        for (const hexagon_opcode *opcode = icode_map[icode] ; opcode ; prev = opcode, opcode = opcode->next_dis)
++        {
++            if ( !is_valid_ptr(opcode) ) {
++                if (!all) { flog = fopen("icodecheck.log", "a+"); }
++                fprintf(flog, "icode = %08x: %p -> next_dis = %p - invalid ptr\n", icode, prev, opcode);
++                if (!all) { fclose(flog); return FALSE; }
++            }
++            else if (!is_valid_opcode(opcode)) {
++                if (!all) { flog = fopen("icodecheck.log", "a+"); }
++                fprintf(flog, "icode = %08x: %p -> next_dis = %p - invalid item\n", icode, prev, opcode);
++                if (!all) { fclose(flog); return FALSE; }
++            }
++        }
++        for (const hexagon_opcode *opcode = icode_map[icode] ; opcode ; prev = opcode, opcode = opcode->next_asm)
++        {
++            if ( !is_valid_ptr(opcode) ) {
++                if (!all) { flog = fopen("icodecheck.log", "a+"); }
++                fprintf(flog, "icode = %08x: %p -> next_asm = %p - invalid ptr\n", icode, prev, opcode);
++                if (!all) { fclose(flog); return FALSE; }
++            }
++            else if (!is_valid_opcode(opcode)) {
++                if (!all) { flog = fopen("icodecheck.log", "a+"); }
++                fprintf(flog, "icode = %08x: %p -> next_asm = %p - invalid item\n", icode, prev, opcode);
++                if (!all) { fclose(flog); return FALSE; }
++            }
++        }
++    }
++    if (all) {
++        fprintf(flog, "icode map OK\n");
++        fclose(flog);
++    }
++    return TRUE;
++}
++//// <<<< itsme
++
+ 
+ /* Install OPCODE in the lookup tables.  */
+ static void
+@@ -1452,6 +1518,7 @@
+   if (hexagon_if_arch_kext ())
+     assert (hexagon_kext_opcode);
+   
++  //check_icode_map(TRUE);
+ #if 0
+   puts ("Hash Table Depth:");
+   for (i = 0; i < HEXAGON_HASH_SIZE; i++)
+@@ -1721,9 +1788,12 @@
+   /* Reset the packet bits.  */
+   insn = HEXAGON_END_PACKET_RESET (insn);
+ 
++
+   for (opcode = hexagon_opcode_lookup_dis (insn);
+        opcode; opcode = HEXAGON_CODE_NEXT_DIS (opcode))
+     {
++      if (!is_valid_ptr(opcode) || !is_valid_opcode(opcode))
++        check_icode_map(FALSE);
+       if (opcode->map)
+ 	continue;
+ 
+diff -duwr xhx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/binutils/readelf.c hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/binutils/readelf.c
+--- xhx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/binutils/readelf.c	2015-09-22 18:42:19.000000000 +0200
++++ hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/binutils/readelf.c	2018-02-14 15:02:45.000000000 +0100
+@@ -8963,7 +8963,7 @@
+ 
+   n = print_vma (si, DEC_5);
+   if (n < 5)
+-    fputs ("     " + n, stdout);
++    fputs (&"     "[n], stdout);
+   printf (" %3lu: ", hn);
+   print_vma (psym->st_value, LONG_HEX);
+   putchar (' ');
+diff -duwr xhx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/include/hexagon-isa.h hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/include/hexagon-isa.h
+--- xhx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/include/hexagon-isa.h	2015-09-22 18:42:17.000000000 +0200
++++ hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/include/hexagon-isa.h	2018-02-14 14:54:38.000000000 +0100
+@@ -28,16 +28,16 @@
+ #define MAX_PACKET_INSNS 4
+ 
+ /* Extract the low 16 bits.  */
+-#define HEXAGON_LO16(num) ((num) & ~(-1 << 16))
++#define HEXAGON_LO16(num) ((num) & ~((-1u) << 16))
+ 
+ /* Extract the high 16 bits.  */
+ #define HEXAGON_HI16(num) HEXAGON_LO16 ((num) >> 16)
+ 
+ /* Extract the extender bits.  */
+-#define HEXAGON_KXER_MASK(num) ((num) & (~0L << 6))
++#define HEXAGON_KXER_MASK(num) ((num) & ((~0UL) << 6))
+ 
+ /* Extract the extended bits.  */
+-#define HEXAGON_KXED_MASK(num) ((num) & ~(~0L << 6))
++#define HEXAGON_KXED_MASK(num) ((num) & ~((~0UL) << 6))
+ 
+ /* Specify the register sub-ranges.  */
+ #define HEXAGON_SUBREGS    16
+diff -duwr xhx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/opcodes/hexagon-dis.c hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/opcodes/hexagon-dis.c
+--- xhx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/opcodes/hexagon-dis.c	2015-09-22 18:42:25.000000000 +0200
++++ hx/sourceryg++-2012.03-151-hexagon/binutils-hexagon-2012.03/opcodes/hexagon-dis.c	2016-01-29 18:03:55.000000000 +0100
+@@ -91,8 +91,8 @@
+   /* Disassemble.   */
+   hexagon_dis_inst (address, insn, buffer, info);
+ 
+-  /* Display the disassembly instruction.  */
+-  (*func) (stream, "%08x     ", insn);
++//  /* Display the disassembly instruction.  */
++//  (*func) (stream, "%08x     ", insn);
+ 
+   /* Print the instruction buffer.
+      Watch out for placeholders where we want
