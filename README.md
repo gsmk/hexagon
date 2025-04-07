@@ -128,6 +128,8 @@ Other Hexagon Processor modules
  * [hexag00n](https://github.com/programa-stic/hexag00n)
  * [r2hexagon](https://github.com/radareorg/r2hexagon)
  * [idp\_hexagon](https://github.com/n-o-o-n/idp_hexagon)
+ * [rz-hexagon](https://github.com/rizinorg/rz-hexagon)/[rzilcompiler](https://github.com/rizinorg/rz-rzilcompiler)
+ * [ghidra-plugin-hexagon](https://github.com/toshipiazza/ghidra-plugin-hexagon), updated fork by [CUB3D](https://github.com/CUB3D/ghidra-hexagon-sleigh)
 
 
 Author
